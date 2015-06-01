@@ -4,7 +4,7 @@ compiler:
 #  - clang
 before_install:
   - sudo apt-get update -qq
-  - sudo apt-get install -y -qq libcunit1-dev libcppunit-dev libncurses5-dev bc
+  - sudo apt-get install -y -qq libcunit1-dev libcppunit-dev libncurses5-dev bc libnl-3-dev
 install:
   - cp linux/config-TRAVIS linux/.config
 env:
