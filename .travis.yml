@@ -10,10 +10,10 @@ install:
 env:
   #- FLAGS=
 script:
-  - ./compile-kernel
-  - ./install-kernel
-  - ./compile-user
-  - ./install-user-from-scratch
+  - sudo ./compile-kernel
+  - sudo ./install-kernel
+  - sudo ./compile-user
+  - sudo ./install-user-from-scratch
 notifications:
   email:
     - ci@bisdn.de
