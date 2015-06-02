@@ -1,0 +1,20 @@
+language: c
+compiler:
+- gcc
+before_install:
+- echo "deb http://us.archive.ubuntu.com/ubuntu/ vivid main universe restricted multiverse" | sudo tee -a /etc/apt/sources.list
+- sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+- sudo apt-get update -qq
+- sudo apt-get install maven libnl-genl-3-dev libnl-3-dev libtool autoconf2.13 openjdk-6-jdk git libpcre3 pkg-config libpcre3-dev libprotobuf-dev protobuf-compiler tcpdump
+- sudo apt-get install -y -qq libcunit1-dev libcppunit-dev libncurses5-dev bc libnl-3-dev
+install:
+- cp linux/config-TRAVIS linux/.config
+env:
+#- FLAGS=
+script:
+- sudo ./compile-kernel
+- sudo ./install-kernel
+- sudo ./install-user-from-scratch
+notifications:
+email:
+- nobody@no.no
