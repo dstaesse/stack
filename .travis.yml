@@ -12,7 +12,6 @@ env:
 script:
   - sudo ./compile-kernel
   - sudo ./install-kernel
-  - sudo ./compile-user
   - sudo ./install-user-from-scratch
 notifications:
   email:
