@@ -8,12 +8,12 @@
 // modify it under the terms of the GNU Lesser General Public
 // License as published by the Free Software Foundation; either
 // version 2.1 of the License, or (at your option) any later version.
-// 
+//
 // This library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // Lesser General Public License for more details.
-// 
+//
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
@@ -35,6 +35,20 @@ namespace rina {
 
 std::string getVersion() {
 	return VERSION;
+}
+
+int string2int(const std::string& s, int& ret)
+{
+	char *dummy;
+	const char *cstr = s.c_str();
+
+	ret = strtoul(cstr, &dummy, 10);
+	if (!s.size() || *dummy != '\0') {
+		ret = ~0U;
+		return -1;
+	}
+
+	return 0;
 }
 
 /* CLASS APPLICATION PROCESS NAMING INFORMATION */
@@ -459,8 +473,11 @@ const std::string IPCEvent::eventTypeToString(IPCEventType eventType) {
         case IPC_PROCESS_PLUGIN_LOAD_RESPONSE:
                 result = "40_PLUGIN_LOAD_RESPONSE";
                 break;
+        case IPC_PROCESS_ENABLE_ENCRYPTION_RESPONSE:
+                result = "41_ENABLE_ENCRYPTION_RESPONSE";
+                break;
 	case IPC_PROCESS_FWD_CDAP_MSG:
-		result = "41_IPC_PROCESS_FWD_CDAP_MSG";
+		result = "42_IPC_PROCESS_FWD_CDAP_MSG";
 		break;
 	case NO_EVENT:
 		result = "42_NO_EVENT";
@@ -736,9 +753,6 @@ IPCEvent * IPCEventProducer::eventTimedWait(int seconds,
                                             int nanoseconds)
 {
 #if STUB_API
-        (void) seconds;
-        (void) nanoseconds;
-
 	return getIPCEvent();
 #else
 	return rinaManager->getEventQueue()->timedtake(seconds, nanoseconds);
@@ -807,6 +821,82 @@ SerializedObject::~SerializedObject(){
                 delete[] message_;
                 message_ = 0;
         }
+}
+
+//Class UCharArray
+UcharArray::UcharArray()
+{
+	data = 0;
+	length = 0;
+}
+
+UcharArray::UcharArray(int arrayLength)
+{
+	data = new unsigned char[arrayLength];
+	length = arrayLength;
+}
+
+UcharArray::UcharArray(const SerializedObject * sobj)
+{
+	data = new unsigned char[sobj->size_];
+	length = sobj->size_;
+	memcpy(data, sobj->message_, length);
+}
+
+UcharArray::~UcharArray()
+{
+	if (data) {
+		delete[] data;
+		data = 0;
+	}
+}
+
+UcharArray& UcharArray::operator=(const UcharArray &other)
+{
+	length = other.length;
+	data = new unsigned char[length];
+	memcpy(data, other.data, length);
+	return *this;
+}
+
+bool UcharArray::operator==(const UcharArray &other) const
+{
+	if (length != other.length) {
+		return false;
+	}
+
+	for (int i=0; i<length; i++) {
+		if (data[i] != other.data[i]) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool UcharArray::operator!=(const UcharArray &other) const
+{
+	return !(*this == other);
+}
+
+std::string UcharArray::toString()
+{
+	std::stringstream ss;
+	ss << std::hex;
+	for (int i = 0; i < length; i++) {
+		ss << std::setw(2) << std::setfill('0') << (int)data[i];
+	}
+	return ss.str();
+}
+
+SerializedObject * UcharArray::get_seralized_object()
+{
+	SerializedObject * result = new SerializedObject();
+	result->size_ = length;
+	result->message_ = new char[result->size_];
+	memcpy(result->message_, data, result->size_);
+
+	return result;
 }
 
 //Class ConsecutiveUnsignedIntegerGenerator

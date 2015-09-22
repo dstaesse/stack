@@ -27,6 +27,18 @@
 
 #include "rds/rstr.h"
 
+
+/* definition of flow options */
+#define FLOW_O_NONBLOCK 00004000 /* use same value as fcntl.h O_NONBLOCK */
+#define FLOW_O_DEFAULT  00000000 /* default flow option */
+
+/* definition of flow commands */
+#define FLOW_F_GETFL    3        /* get flow->options, same value as F_GETFL */
+#define FLOW_F_SETFL    4        /* set flow->options, same value as F_SETFL */
+
+/* flow options, such as blocking I/O behavior */
+typedef uint         flow_opts_t;
+
 /* FIXME: Shouldn't we keep contrained to int32 ids ? */
 typedef int           port_id_t;
 
@@ -163,7 +175,7 @@ struct port_id_altlist {
 	struct list_head	next;
 };
 
-struct modpdufwd_entry {
+struct mod_pff_entry {
         address_t        fwd_info; /* dest_addr, neighbor_addr, circuit-id */
         qos_id_t         qos_id;
 	struct list_head port_id_altlists;

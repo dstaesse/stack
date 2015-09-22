@@ -22,8 +22,6 @@
 #ifndef IPCP_RIB_DAEMON_HH
 #define IPCP_RIB_DAEMON_HH
 
-#ifdef __cplusplus
-
 #include <librina/concurrency.h>
 
 #include "common/concurrency.h"
@@ -55,6 +53,12 @@ public:
         void sendMessageSpecific(bool useAddress, const rina::CDAPMessage & cdapMessage, int sessionId,
 			unsigned int address, rina::ICDAPResponseMessageHandler * cdapMessageHandler);
         void cdapMessageDelivered(char* message, int length, int portId);
+	void generateCDAPResponse(int invoke_id,
+			rina::CDAPSessionDescriptor * cdapSessDescr,
+			rina::CDAPMessage::Opcode opcode,
+			const std::string& obj_class,
+			const std::string& obj_name,
+			rina::RIBObjectValue& robject_value);
 
 private:
         INMinusOneFlowManager * n_minus_one_flow_manager_;
@@ -72,8 +76,6 @@ private:
         void nMinusOneFlowAllocated(rina::NMinusOneFlowAllocatedEvent * event);
 };
 
-}
+} //namespace rinad
 
-#endif
-
-#endif
+#endif //IPCP_RIB_DAEMON_HH

@@ -142,9 +142,21 @@ IPCMConsole::IPCMConsole(const unsigned int port_) :
 				"USAGE: plugin-get-info <plugin-name>");
 	commands_map["show-dif-templates"] = ConsoleCmdInfo(&IPCMConsole::show_dif_templates,
 					"USAGE: show-dif-templates");
+	commands_map["read-ipcp-ribobj"] =
+			ConsoleCmdInfo(&IPCMConsole::read_ipcp_ribobj,
+				"USAGE: read-ipcp-ribobj <ipcp-id> <object-class> "
+				"<object-name>");
+	commands_map["show-catalog"] =
+			ConsoleCmdInfo(&IPCMConsole::show_catalog,
+				"USAGE: show-catalog [<component-name>]");
+
+	commands_map["update-catalog"] =
+			ConsoleCmdInfo(&IPCMConsole::update_catalog,
+				"USAGE: update-catalog");
 
 	rina::ThreadAttributes ta;
-	worker = new rina::Thread(&ta, console_function, this);
+	worker = new rina::Thread(console_function, this, &ta);
+	worker->start();
 }
 
 IPCMConsole::~IPCMConsole() throw()
@@ -332,15 +344,11 @@ IPCMConsole::process_command(int cfd, char *cmdbuf, int size)
 int
 IPCMConsole::quit(vector<string>& args)
 {
-	(void) args;
-
 	return CMDRETSTOP;
 }
 
 int IPCMConsole::help(vector<string>& args)
 {
-	(void) args;
-
 	if (args.size() < 2) {
 		outstream << "Available commands:" << endl;
 		for (map<string, ConsoleCmdInfo>::iterator mit =
@@ -415,8 +423,6 @@ IPCMConsole::destroy_ipcp(vector<string>& args)
 int
 IPCMConsole::list_ipcps(vector<string>&args)
 {
-	(void) args;
-
 	IPCManager->list_ipcps(outstream);
 
 	return CMDRETCONT;
@@ -425,7 +431,6 @@ IPCMConsole::list_ipcps(vector<string>&args)
 int
 IPCMConsole::list_ipcp_types(std::vector<std::string>& args)
 {
-	(void) args;
 	std::list<std::string> types;
 
 	IPCManager->list_ipcp_types(types);
@@ -746,7 +751,7 @@ IPCMConsole::plugin_load_unload(std::vector<std::string>& args, bool load)
 		un = "un";
 	}
 
-	if(IPCManager->plugin_load(this, &promise, ipcp_id, args[2], load) == IPCM_FAILURE ||
+	if (IPCManager->plugin_load(this, &promise, ipcp_id, args[2], load) == IPCM_FAILURE ||
 			promise.wait() != IPCM_SUCCESS) {
 		outstream << "Plugin " << un << "loading failed" << endl;
 		return CMDRETCONT;
@@ -812,6 +817,66 @@ int IPCMConsole::show_dif_templates(std::vector<std::string>& args)
 	for (it = dif_templates.begin(); it != dif_templates.end(); ++it) {
 		outstream << (*it)->toString() << endl;
 	}
+
+	return CMDRETCONT;
+}
+
+int IPCMConsole::read_ipcp_ribobj(std::vector<std::string>& args)
+{
+	Promise promise;
+	int ipcp_id;
+
+	if (args.size() != 4) {
+		outstream << commands_map[args[0]].usage << endl;
+		return CMDRETCONT;
+	}
+
+	if (string2int(args[1], ipcp_id)){
+		outstream << "Invalid IPC process id" << endl;
+		return CMDRETCONT;
+	}
+
+	if (!IPCManager->ipcp_exists(ipcp_id)) {
+		outstream << "No such IPC process id" << endl;
+		return CMDRETCONT;
+	}
+
+	if (IPCManager->read_ipcp_ribobj(this, &promise, ipcp_id,
+					 args[2], args[3]) == IPCM_FAILURE ||
+					 promise.wait() != IPCM_SUCCESS) {
+		outstream << "Error occured while forwarding CDAP message to IPCP" << endl;
+	} else {
+		outstream << "Successfully sent M_READ request "
+			  << "with object class = " << args[2]
+			  << " and object name = " << args[3] << endl;
+	}
+
+	return CMDRETCONT;
+}
+
+int IPCMConsole::show_catalog(std::vector<std::string>& args)
+{
+	switch (args.size()) {
+	case 1:
+		outstream << IPCManager->catalog.toString();
+		break;
+
+	case 2:
+		outstream << IPCManager->catalog.toString(args[1]);
+		break;
+
+	default:
+		outstream << commands_map[args[0]].usage << endl;
+		break;
+	}
+
+	return CMDRETCONT;
+}
+
+int IPCMConsole::update_catalog(std::vector<std::string>& args)
+{
+	IPCManager->update_catalog(this);
+	outstream << "Catalog updated" << endl;
 
 	return CMDRETCONT;
 }

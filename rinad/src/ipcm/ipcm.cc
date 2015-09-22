@@ -27,6 +27,10 @@
 #include <map>
 #include <vector>
 
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <dirent.h>
+
 #include <librina/common.h>
 #include <librina/ipc-manager.h>
 #include <librina/plugin-info.h>
@@ -77,7 +81,7 @@ namespace rinad {
 Singleton<IPCManager_> IPCManager;
 
 IPCManager_::IPCManager_() : req_to_stop(false), io_thread(NULL),
-		dif_template_manager(NULL){
+		dif_template_manager(NULL) {
 
 }
 
@@ -105,12 +109,17 @@ void IPCManager_::init(const std::string& loglevel, std::string& config_file)
 			config.local.libraryPath.c_str());
 		LOG_DBG("       log folder: %s", config.local.logPath.c_str());
 
-		//Initialize the I/O thread
-		io_thread = new rina::Thread(&io_thread_attrs,
-							io_loop_trampoline,
-							NULL);
+		// Load the plugins catalog
+		catalog.import();
+		//catalog.print();
 
-		//Initialize DIF Templates Manager (with its monitor thread)
+		// Initialize the I/O thread
+		io_thread = new rina::Thread(io_loop_trampoline,
+				             NULL,
+				             &io_thread_attrs);
+		io_thread->start();
+
+		// Initialize DIF Templates Manager (with its monitor thread)
 		stringstream ss;
 		ss << config_file.substr(0, config_file.rfind("/"));
 		dif_template_manager = new DIFTemplateManager(ss.str());
@@ -292,6 +301,11 @@ IPCManager_::destroy_ipcp(Addon* callee, unsigned short ipcp_id)
 		return IPCM_FAILURE;
 	}
 
+	// Synchronize the catalog state, so that
+	// the ipcp_id of the IPCP just destroyed can
+	// be reused without inconsistencies in the catalog
+	catalog.ipcp_destroyed(ipcp_id);
+
 	return IPCM_SUCCESS;
 }
 
@@ -391,6 +405,26 @@ IPCManager_::assign_to_dif(Addon* callee, Promise* promise,
 	IPCPTransState* trans;
 
 	try {
+		if (is_any_ipcp_assigned_to_dif(dif_name)) {
+			ss << "There is already an IPCP assigned to DIF "
+				<< dif_name.toString()
+				<< " in this system.";
+			FLUSH_LOG(ERR, ss);
+			throw rina::AssignToDIFException();
+		}
+
+		ipcp = lookup_ipcp_by_id(ipcp_id, false);
+		if (ipcp->get_type() == rina::NORMAL_IPC_PROCESS) {
+			// Load all the plugins required from by template, but
+			// first release the ipcp lock, to avoid lock-ups.
+			ipcp->rwlock.unlock();
+
+			catalog.load_by_template(callee, ipcp_id, dif_template);
+
+		} else {
+			ipcp->rwlock.unlock();
+		}
+
 		ipcp = lookup_ipcp_by_id(ipcp_id, true);
 		if(!ipcp){
 			ss << "Invalid IPCP id "<< ipcp_id;
@@ -400,14 +434,6 @@ IPCManager_::assign_to_dif(Addon* callee, Promise* promise,
 
 		//Auto release the write lock
 		rina::WriteScopedLock writelock(ipcp->rwlock, false);
-
-		if (is_any_ipcp_assigned_to_dif(dif_name)) {
-			ss << "There is already an IPCP assigned to DIF "
-				<< dif_name.toString()
-				<< " in this system.";
-			FLUSH_LOG(ERR, ss);
-			throw rina::AssignToDIFException();
-		}
 
 		// Fill in the DIFConfiguration object.
 		if (ipcp->get_type() == rina::NORMAL_IPC_PROCESS) {
@@ -455,15 +481,7 @@ IPCManager_::assign_to_dif(Addon* callee, Promise* promise,
 				address_config.static_address_.push_back(static_address);
 			}
 			nsm_config.addressing_configuration_ = address_config;
-
-                        // Copy the por-component policy set names from the configuration
-                        // structure to the dif_config struct
-                        for (map<string, string>::iterator
-                                        it = dif_template->policySets.begin();
-                                        it != dif_template->policySets.end(); it++) {
-                                dif_config.policy_sets.push_back(
-                                                rina::Parameter(it->first, it->second));
-                        }
+			nsm_config.policy_set_ = dif_template->nsmConfiguration.policy_set_;
 
 			bool found = dif_template->
 				lookup_ipcp_address(ipcp->get_name(),
@@ -476,12 +494,17 @@ IPCManager_::assign_to_dif(Addon* callee, Promise* promise,
 				FLUSH_LOG(ERR, ss);
 				throw rina::Exception();
 			}
-			dif_config.set_efcp_configuration(efcp_config);
+			dif_config.efcp_configuration_ = efcp_config;
 			dif_config.nsm_configuration_ = nsm_config;
-			dif_config.pduft_generator_configuration_ =
-					dif_template->pdufTableGeneratorConfiguration;
 			dif_config.rmt_configuration_ = dif_template->rmtConfiguration;
+			dif_config.fa_configuration_ = dif_template->faConfiguration;
+			dif_config.ra_configuration_ = dif_template->raConfiguration;
+			dif_config.routing_configuration_ = dif_template->routingConfiguration;
+			dif_config.sm_configuration_ = dif_template->secManConfiguration;
+			dif_config.et_configuration_ = dif_template->etConfiguration;
 			dif_config.set_address(address);
+
+			dif_config.sm_configuration_ = dif_template->secManConfiguration;
 		}
 
 		for (map<string, string>::const_iterator
@@ -559,8 +582,7 @@ IPCManager_::assign_to_dif(Addon* callee, Promise* promise,
 ipcm_res_t
 IPCManager_::register_at_dif(Addon* callee, Promise* promise,
 			const unsigned short ipcp_id,
-			const rina::ApplicationProcessNamingInformation&
-			    dif_name)
+			const rina::ApplicationProcessNamingInformation& dif_name)
 {
 	// Select a slave (N-1) IPC process.
 	IPCMIPCProcess *ipcp, *slave_ipcp;
@@ -1091,6 +1113,18 @@ IPCManager_::set_policy_set_param(Addon* callee, Promise* promise,
 	return IPCM_PENDING;
 }
 
+static string
+extract_subcomponent_name(const string& cpath)
+{
+	size_t l = cpath.rfind(".");
+
+	if (l == string::npos) {
+		return cpath;
+	}
+
+	return cpath.substr(l+1);
+}
+
 ipcm_res_t
 IPCManager_::select_policy_set(Addon* callee, Promise* promise,
 		const unsigned short ipcp_id,
@@ -1099,9 +1133,21 @@ IPCManager_::select_policy_set(Addon* callee, Promise* promise,
 {
 	ostringstream ss;
 	IPCMIPCProcess *ipcp;
-	IPCPTransState* trans;
+	IPCPSelectPsTransState* trans;
 
 	try {
+		/* Load the policy set in the catalog. */
+		rina::PsInfo ps_info;
+		int ret;
+
+		ps_info.name = ps_name;
+		ps_info.app_entity = extract_subcomponent_name(component_path);
+		ret = catalog.load_policy_set(callee, ipcp_id, ps_info);
+		if (ret) {
+			throw rina::Exception();
+		}
+
+		/* Select the policy set. */
 		ipcp = lookup_ipcp_by_id(ipcp_id);
 
 		if(!ipcp){
@@ -1113,7 +1159,8 @@ IPCManager_::select_policy_set(Addon* callee, Promise* promise,
 		//Auto release the read lock
 		rina::ReadScopedLock readlock(ipcp->rwlock, false);
 
-		trans = new IPCPTransState(callee, promise, ipcp->get_id());
+		trans = new IPCPSelectPsTransState(callee, promise, ipcp->get_id(),
+						   ps_info, ipcp->get_id());
 		if(!trans){
 			ss << "Unable to allocate memory for the transaction object. Out of memory! ";
 			FLUSH_LOG(ERR, ss);
@@ -1153,6 +1200,51 @@ IPCManager_::select_policy_set(Addon* callee, Promise* promise,
 	return IPCM_PENDING;
 }
 
+// Returns IPCM_SUCCESS if a kernel plugin was successfully loaded/unloaded,
+// IPCM_FAILURE otherwise
+ipcm_res_t
+IPCManager_::plugin_load_kernel(const std::string& plugin_name,
+				bool load)
+{
+	ostringstream ss;
+	ipcm_res_t result = IPCM_FAILURE;
+	pid_t pid;
+
+	pid = fork();
+	if (pid < 0) {
+		// parent, fork() failed
+		ss << "Kernel plugin (un)loading: fork() failed";
+		FLUSH_LOG(ERR, ss);
+		result = IPCM_FAILURE;
+
+	} else if (pid == 0) {
+		// child
+		if (load) {
+			execlp("modprobe", "modprobe", plugin_name.c_str(),
+			       NULL);
+
+		} else {
+			execlp("modprobe", "modprobe", "-r",
+			       plugin_name.c_str(), NULL);
+		}
+
+		ss << "Kernel plugin (un)loading: exec() failed";
+		FLUSH_LOG(ERR, ss);
+
+		exit(EXIT_FAILURE);
+
+	} else {
+		// parent, fork() successful
+		int child_status = 0;
+
+		waitpid(pid, &child_status, 0);
+
+		result = child_status ? IPCM_FAILURE : IPCM_SUCCESS;
+	}
+
+	return result;
+}
+
 ipcm_res_t
 IPCManager_::plugin_load(Addon* callee, Promise* promise,
 		const unsigned short ipcp_id,
@@ -1160,9 +1252,17 @@ IPCManager_::plugin_load(Addon* callee, Promise* promise,
 {
 	ostringstream ss;
 	IPCMIPCProcess *ipcp;
-	IPCPTransState* trans;
+	IPCPpluginTransState* trans;
 
 	try {
+		//First try to see if its a kernel module
+		if (plugin_load_kernel(plugin_name, load) == IPCM_SUCCESS) {
+			promise->ret = IPCM_SUCCESS;
+			catalog.plugin_loaded(plugin_name, ipcp_id, load);
+
+			return IPCM_SUCCESS;
+		}
+
 		ipcp = lookup_ipcp_by_id(ipcp_id);
 
 		if(!ipcp){
@@ -1174,12 +1274,14 @@ IPCManager_::plugin_load(Addon* callee, Promise* promise,
 		//Auto release the read lock
 		rina::ReadScopedLock readlock(ipcp->rwlock, false);
 
-		trans = new IPCPTransState(callee, promise, ipcp->get_id());
+		trans = new IPCPpluginTransState(callee, promise, ipcp->get_id(),
+						 plugin_name, load);
 		if(!trans){
 			ss << "Unable to allocate memory for the transaction object. Out of memory! ";
 			FLUSH_LOG(ERR, ss);
 			throw rina::Exception();
 		}
+
 		//Store transaction
 		if(add_transaction_state(trans) < 0){
 			ss << "Unable to add transaction; out of memory? ";
@@ -1189,7 +1291,7 @@ IPCManager_::plugin_load(Addon* callee, Promise* promise,
 		ipcp->pluginLoad(plugin_name, load, trans->tid);
 
 		ss << "Issued plugin-load to IPC process " <<
-				ipcp->get_name().toString() << endl;
+		      ipcp->get_name().toString() << endl;
 		FLUSH_LOG(INFO, ss);
 	} catch(rina::ConcurrentException& e) {
 		ss << "Error while issuing plugin-load request "
@@ -1219,6 +1321,67 @@ IPCManager_::plugin_get_info(const std::string& plugin_name,
 	int ret = rina::plugin_get_info(plugin_name, IPCPPLUGINSDIR, result);
 
 	return ret ? IPCM_FAILURE : IPCM_SUCCESS;
+}
+
+ipcm_res_t
+IPCManager_::update_catalog(Addon* callee)
+{
+	catalog.import();
+
+	return IPCM_SUCCESS;
+}
+
+ipcm_res_t
+IPCManager_::read_ipcp_ribobj(Addon* callee, Promise* promise,
+			      const unsigned short ipcp_id,
+			      const std::string& object_class,
+			      const std::string& object_name)
+{
+	IPCMIPCProcess * ipcp;
+	TransactionState* trans;
+	ostringstream ss;
+
+	try {
+		ipcp = lookup_ipcp_by_id(ipcp_id);
+
+		if(!ipcp){
+			LOG_ERR("Invalid IPCP id %hu", ipcp_id);
+			return IPCM_FAILURE;
+		}
+
+		//Auto release the read lock
+		rina::ReadScopedLock readlock(ipcp->rwlock, false);
+
+		rina::CDAPMessage *msg = rina::CDAPMessage::getReadObjectRequestMessage(NULL,
+				rina::CDAPMessage::NONE_FLAGS, object_class, 0, object_name, 0);
+
+		trans = new TransactionState(callee, promise);
+		if(!trans){
+			ss << "Unable to allocate memory for the transaction object. Out of memory! ";
+			FLUSH_LOG(ERR, ss);
+			throw rina::Exception();
+		}
+
+		//Store transaction
+		if(add_transaction_state(trans) < 0){
+			ss << "Unable to add transaction; out of memory? ";
+			FLUSH_LOG(ERR, ss);
+			throw rina::Exception();
+		}
+
+		ipcp->forwardCDAPMessage(*msg, trans->tid);
+		delete msg;
+
+		ss << "Forwarded CDAPMessage to IPC process " <<
+		      ipcp->get_name().toString() << endl;
+		FLUSH_LOG(INFO, ss);
+
+	} catch  (rina::Exception &e) {
+		LOG_ERR("Problems: %s", e.what());
+		return IPCM_FAILURE;
+	}
+
+	return IPCM_PENDING;
 }
 
 ipcm_res_t
@@ -1465,7 +1628,6 @@ void IPCManager_::run(){
 
 //static
 void* IPCManager_::io_loop_trampoline(void* param){
-	(void)param;
 	IPCManager->io_loop();
 	return NULL;
 }
@@ -1632,9 +1794,21 @@ void IPCManager_::io_loop(){
 
 				//Addon specific events
 				default:
+					{
+					TransactionState* trans = get_transaction_state<TransactionState>(
+								  event->sequenceNumber);
+
 					Addon::distribute_flow_event(event);
+
+					if (trans) {
+						//Mark as completed
+						trans->completed(IPCM_SUCCESS);
+						remove_transaction_state(trans->tid);
+					}
+
 					continue;
 					break;
+					}
 			}
 
 		} catch (rina::Exception &e) {

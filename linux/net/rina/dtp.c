@@ -33,9 +33,11 @@
 #include "dt-utils.h"
 #include "dtcp.h"
 #include "dtcp-ps.h"
-#include "dtcp-utils.h"
+#include "dtp-conf-utils.h"
+#include "dtcp-conf-utils.h"
 #include "ps-factory.h"
 #include "dtp-ps.h"
+#include "policies.h"
 
 static struct policy_set_list policy_sets = {
         .head = LIST_HEAD_INIT(policy_sets.head)
@@ -44,9 +46,6 @@ static struct policy_set_list policy_sets = {
 /* This is the DT-SV part maintained by DTP */
 struct dtp_sv {
         spinlock_t          lock;
-
-        /* Configuration values */
-        struct connection * connection; /* FIXME: Are we really sure ??? */
 
         uint_t              seq_number_rollover_threshold;
         uint_t              dropped_pdus;
@@ -70,8 +69,8 @@ struct dtp {
         struct dtp_sv *           sv; /* The state-vector */
 
         struct rina_component     base;
+        struct dtp_config *       cfg;
         struct rmt *              rmt;
-        struct efcp *             efcp;
         struct squeue *           seqq;
         struct {
                 struct rtimer * sender_inactivity;
@@ -81,7 +80,6 @@ struct dtp {
 };
 
 static struct dtp_sv default_sv = {
-        .connection                    = NULL,
         .seq_nr_to_send                = 0,
         .max_seq_nr_sent               = 0,
         .seq_number_rollover_threshold = 0,
@@ -111,12 +109,6 @@ struct dtp_sv * dtp_dtp_sv(struct dtp * dtp)
         return dtp->sv;
 }
 EXPORT_SYMBOL(dtp_dtp_sv);
-
-struct connection * dtp_sv_connection(struct dtp_sv * sv)
-{
-        return sv->connection;
-}
-EXPORT_SYMBOL(dtp_sv_connection);
 
 int nxt_seq_reset(struct dtp_sv * sv, seq_num_t sn)
 {
@@ -234,6 +226,7 @@ static void dropped_pdus_inc(struct dtp_sv * sv)
         spin_lock_irqsave(&sv->lock, flags);
         sv->dropped_pdus++;
         spin_unlock_irqrestore(&sv->lock, flags);
+        LOG_ERR("PDU Dropped, counter inc");
 }
 
 int dtp_initial_sequence_number(struct dtp * instance)
@@ -413,7 +406,7 @@ static int seq_queue_push_ni(struct seq_queue * q, struct pdu * pdu)
         psn  = pci_sequence_number_get((struct pci *) pci);
         if (csn == psn) {
                 LOG_ERR("Another PDU with the same seq_num is in "
-                        "the rtx queue!");
+                        "the seqq");
                 seq_queue_entry_destroy(tmp);
                 return -1;
         }
@@ -483,6 +476,7 @@ static int pdu_post(struct dtp * instance,
 {
         struct sdu *    sdu;
         struct buffer * buffer;
+        struct efcp *   efcp;
 
         ASSERT(instance->sv);
 
@@ -496,10 +490,11 @@ static int pdu_post(struct dtp * instance,
         pdu_buffer_disown(pdu);
         pdu_destroy(pdu);
 
-        ASSERT(instance->sv->connection);
+        efcp = dt_efcp(instance->parent);
+        ASSERT(efcp);
 
-        if (efcp_enqueue(instance->efcp,
-                         instance->sv->connection->port_id,
+        if (efcp_enqueue(efcp,
+                         efcp_port_id(efcp),
                          sdu)) {
                 LOG_ERR("Could not enqueue SDU to EFCP");
                 return -1;
@@ -574,7 +569,7 @@ static void tf_receiver_inactivity(void * data)
  * function. This has to be refactored and evaluate how much code would be
  * repeated
  */
-seq_num_t process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
+const struct pci * process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
 {
         struct dt *              dt;
         struct dtp_sv *          sv;
@@ -590,9 +585,9 @@ seq_num_t process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
         struct seq_queue_entry * pos, * n;
         struct dtp_ps *          ps;
         struct dtcp_ps *         dtcp_ps;
-        seq_num_t                ret;
         unsigned long            flags;
-        /*struct rqueue *          to_pos*/
+        struct rqueue *          to_post;
+        const struct pci *       pci, * pci_ret = NULL;
 
         ASSERT(dtp);
 
@@ -606,9 +601,6 @@ seq_num_t process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
         ASSERT(seqq);
 
         a = dt_sv_a(dt);
-
-        ASSERT(sv->connection);
-        ASSERT(sv->connection->policies_params);
 
         rcu_read_lock();
         ps = container_of(rcu_dereference(dtp->base.ps), struct dtp_ps, base);
@@ -626,15 +618,14 @@ seq_num_t process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
 
         LOG_DBG("Processing A timer expiration");
 
-        /*to_post = rqueue_create_ni();
+        to_post = rqueue_create_ni();
         if (!to_post) {
                 LOG_ERR("Could not create to_post list in A timer");
-                return -1;
-        }*/
+                return NULL;
+        }
 
         spin_lock_irqsave(&seqq->lock, flags);
         LWE = dt_sv_rcv_lft_win(dt);
-        ret = LWE;
         LOG_DBG("LWEU: Original LWE = %u", LWE);
         LOG_DBG("LWEU: MAX GAPS     = %u", max_sdu_gap);
 
@@ -644,10 +635,11 @@ seq_num_t process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
                         spin_unlock_irqrestore(&seqq->lock, flags);
 
                         LOG_ERR("Bogus data, bailing out");
-                        return LWE;
+                        return NULL;
                 }
 
-                seq_num = pci_sequence_number_get(pdu_pci_get_ro(pdu));
+                pci     = pdu_pci_get_ro(pdu);
+                seq_num = pci_sequence_number_get(pci);
                 LOG_DBG("Seq number: %u", seq_num);
 
                 if (seq_num - LWE - 1 <= max_sdu_gap) {
@@ -659,20 +651,15 @@ seq_num_t process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
                         list_del(&pos->next);
                         seq_queue_entry_destroy(pos);
 
-
-                        /*spin_unlock(&seqq->lock);*/
-                        if (pdu_post(dtp, pdu)) {
+                        if (rqueue_tail_push_ni(to_post, pdu)) {
                                 LOG_ERR("Could not post PDU %u while A timer"
                                         "(in-order)", seq_num);
                         }
 
                         LOG_DBG("Atimer: PDU %u posted", seq_num);
 
-                        /*spin_lock(&seqq->lock);
-                        rqueue_tail_push_ni(to_post, pdu);*/
-
-                        LWE = dt_sv_rcv_lft_win(dt);
-                        ret = LWE;
+                        LWE = seq_num;
+                        pci_ret = pci;
                         continue;
                 }
 
@@ -681,7 +668,7 @@ seq_num_t process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
                         LOG_DBG("Processing A timer expired");
                         if (dtcp && dtcp_rtx_ctrl(dtcp_config_get(dtcp))) {
                                 LOG_DBG("Retransmissions will be required");
-                                ret = seq_num;
+                                pci_ret = pci;
                                 goto finish;
                         }
 
@@ -694,17 +681,13 @@ seq_num_t process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
                         list_del(&pos->next);
                         seq_queue_entry_destroy(pos);
 
-                        /*spin_unlock(&seqq->lock);*/
-                        if (pdu_post(dtp, pdu)) {
+                        if (rqueue_tail_push_ni(to_post, pdu)) {
                                 LOG_ERR("Could not post PDU %u while A timer"
                                         "(expiration)", seq_num);
                         }
 
-                        /*spin_lock(&seqq->lock);
-                        rqueue_tail_push_ni(to_post, pdu);*/
-
-                        LWE = dt_sv_rcv_lft_win(dt);
-                        ret = LWE;
+                        LWE = seq_num;
+                        pci_ret = pci;
 
                         continue;
                 }
@@ -715,14 +698,14 @@ seq_num_t process_A_expiration(struct dtp * dtp, struct dtcp * dtcp)
 finish:
         spin_unlock_irqrestore(&seqq->lock, flags);
 
-        /*while (!rqueue_is_empty(to_post)) {
+        while (!rqueue_is_empty(to_post)) {
                 pdu = (struct pdu *) rqueue_head_pop(to_post);
                 if (pdu)
                         pdu_post(dtp, pdu);
         }
-        rqueue_destroy(to_post, (void (*)(void *)) pdu_destroy);*/
+        rqueue_destroy(to_post, (void (*)(void *)) pdu_destroy);
         LOG_DBG("Finish process_Atimer_expiration");
-        return ret;
+        return pci_ret;
 }
 EXPORT_SYMBOL(process_A_expiration);
 
@@ -828,7 +811,7 @@ int dtp_select_policy_set(struct dtp * dtp,
                           const string_t * path,
                           const string_t * name)
 {
-        struct conn_policies *params = dtp->sv->connection->policies_params;
+        struct dtp_config * cfg = dtp->cfg;
         struct dtp_ps * ps;
         int ret;
 
@@ -847,13 +830,13 @@ int dtp_select_policy_set(struct dtp * dtp,
          * and not from the struct connection. */
         mutex_lock(&dtp->base.ps_lock);
         ps = container_of(dtp->base.ps, struct dtp_ps, base);
-        ps->dtcp_present        = params->dtcp_present;
-        ps->seq_num_ro_th       = params->seq_num_ro_th;
-        ps->initial_a_timer     = params->initial_a_timer;
-        ps->partial_delivery    = params->partial_delivery;
-        ps->incomplete_delivery = params->incomplete_delivery;
-        ps->in_order_delivery   = params->in_order_delivery;
-        ps->max_sdu_gap         = params->max_sdu_gap;
+        ps->dtcp_present        = dtp_conf_dtcp_present(cfg);
+        ps->seq_num_ro_th       = dtp_conf_seq_num_ro_th(cfg);
+        ps->initial_a_timer     = dtp_conf_initial_a_timer(cfg);
+        ps->partial_delivery    = dtp_conf_partial_del(cfg);
+        ps->incomplete_delivery = dtp_conf_incomplete_del(cfg);
+        ps->in_order_delivery   = dtp_conf_in_order_del(cfg);
+        ps->max_sdu_gap         = dtp_conf_max_sdu_gap(cfg);
         mutex_unlock(&dtp->base.ps_lock);
 
         return 0;
@@ -926,16 +909,21 @@ EXPORT_SYMBOL(dtp_set_policy_set_param);
 
 struct dtp * dtp_create(struct dt *         dt,
                         struct rmt *        rmt,
-                        struct efcp *       efcp,
-                        struct connection * connection)
+                        struct dtp_config * dtp_cfg)
 {
         struct dtp * tmp;
+        string_t *   ps_name;
 
         if (!dt) {
                 LOG_ERR("No DT passed, bailing out");
                 return NULL;
         }
         dt_sv_drf_flag_set(dt, true);
+
+        if (!dtp_cfg) {
+                LOG_ERR("No DTP conf passed, bailing out");
+                return NULL;
+        }
 
         if (!rmt) {
                 LOG_ERR("No RMT passed, bailing out");
@@ -962,11 +950,10 @@ struct dtp * dtp_create(struct dt *         dt,
 
         spin_lock_init(&tmp->sv->lock);
 
-        tmp->sv->connection = connection;
+        tmp->cfg   = dtp_cfg;
 
-        tmp->rmt            = rmt;
-        tmp->efcp           = efcp;
-        tmp->seqq           = squeue_create(tmp);
+        tmp->rmt  = rmt;
+        tmp->seqq = squeue_create(tmp);
         if (!tmp->seqq) {
                 LOG_ERR("Could not create Sequencing queue");
                 dtp_destroy(tmp);
@@ -987,8 +974,12 @@ struct dtp * dtp_create(struct dt *         dt,
 
         rina_component_init(&tmp->base);
 
-        /* Try to select the default policy-set. */
-        if (dtp_select_policy_set(tmp, "", RINA_PS_DEFAULT_NAME)) {
+        ps_name = (string_t *) policy_name(dtp_conf_ps_get(dtp_cfg));
+        if (!ps_name || !strcmp(ps_name, ""))
+                ps_name = RINA_PS_DEFAULT_NAME;
+
+        if (dtp_select_policy_set(tmp, "", ps_name)) {
+                LOG_ERR("Could not load DTP PS %s", ps_name);
                 dtp_destroy(tmp);
                 return NULL;
         }
@@ -1023,6 +1014,7 @@ int dtp_destroy(struct dtp * instance)
 
         if (instance->seqq) squeue_destroy(instance->seqq);
         if (instance->sv)   rkfree(instance->sv);
+        if (instance->cfg) dtp_config_destroy(instance->cfg);
         rina_component_fini(&instance->base);
 
         rkfree(instance);
@@ -1069,6 +1061,7 @@ int dtp_write(struct dtp * instance,
         struct pdu *            cpdu;
         struct dtp_ps *         ps;
         seq_num_t               sn, csn;
+        struct efcp *           efcp;
 
         if (!sdu_is_ok(sdu))
                 return -1;
@@ -1086,16 +1079,17 @@ int dtp_write(struct dtp * instance,
                 return -1;
         }
 
-        /* State Vector must not be NULL */
-        sv = instance->sv;
-        if (!sv) {
-                LOG_ERR("Bogus DTP-SV passed, bailing out");
+        efcp = dt_efcp(dt);
+        if (!efcp) {
+                LOG_ERR("Bogus EFCP passed, bailing out");
                 sdu_destroy(sdu);
                 return -1;
         }
 
-        if (!sv->connection) {
-                LOG_ERR("Bogus SV connection passed, bailing out");
+        /* State Vector must not be NULL */
+        sv = instance->sv;
+        if (!sv) {
+                LOG_ERR("Bogus DTP-SV passed, bailing out");
                 sdu_destroy(sdu);
                 return -1;
         }
@@ -1137,12 +1131,12 @@ int dtp_write(struct dtp * instance,
 
         csn = nxt_seq_get(sv);
         if (pci_format(pci,
-                       sv->connection->source_cep_id,
-                       sv->connection->destination_cep_id,
-                       sv->connection->source_address,
-                       sv->connection->destination_address,
+                       efcp_src_cep_id(efcp),
+                       efcp_dst_cep_id(efcp),
+                       efcp_src_addr(efcp),
+                       efcp_dst_addr(efcp),
                        csn,
-                       sv->connection->qos_id,
+                       efcp_qos_id(efcp),
                        PDU_TYPE_DT)) {
                 pci_destroy(pci);
                 sdu_destroy(sdu);
@@ -1151,8 +1145,12 @@ int dtp_write(struct dtp * instance,
         sn = dtcp_snd_lf_win(dtcp);
         if (dt_sv_drf_flag(dt)          ||
             (sn == (csn - 1))           ||
-            !sv->rexmsn_ctrl)
-                pci_flags_set(pci, PDU_FLAGS_DATA_RUN);
+            !sv->rexmsn_ctrl) {
+		pdu_flags_t pci_flags;
+		pci_flags = pci_flags_get(pci);
+		pci_flags |= PDU_FLAGS_DATA_RUN;
+                pci_flags_set(pci, pci_flags);
+	}
 
         pdu = pdu_create_ni();
         if (!pdu) {
@@ -1289,6 +1287,7 @@ int dtp_receive(struct dtp * instance,
         bool             rtx_ctrl = false;
         seq_num_t        max_sdu_gap;
         unsigned long    flags;
+        struct rqueue *  to_post;
         /*struct rqueue *       to_post;*/
 
         LOG_DBG("DTP receive started...");
@@ -1305,9 +1304,8 @@ int dtp_receive(struct dtp * instance,
         }
 
         if (!instance                  ||
-            !instance->efcp            ||
-            !instance->sv              ||
-            !instance->sv->connection) {
+            !instance->parent          ||
+            !instance->sv) {
                 LOG_ERR("Bogus instance passed, bailing out");
                 pdu_destroy(pdu);
                 return -1;
@@ -1365,19 +1363,18 @@ int dtp_receive(struct dtp * instance,
                         spin_lock_irqsave(&instance->seqq->lock, flags);
                         dtp_squeue_flush(instance);
                         dt_sv_rcv_lft_win_set(dt, seq_num);
-                        pdu_post(instance, pdu);
                         spin_unlock_irqrestore(&instance->seqq->lock, flags);
-                        LOG_DBG("Data run flag DRF");
                         if (dtcp) {
-                                if (dtcp_sv_update(dtcp, seq_num)) {
+                                if (dtcp_sv_update(dtcp, pci)) {
                                         LOG_ERR("Failed to update dtcp sv");
                                         return -1;
                                 }
                         }
-
+                        pdu_post(instance, pdu);
+                        LOG_DBG("Data run flag DRF");
                         return 0;
                 }
-                LOG_DBG("Expecting DRF but not present, dropping PDU %d...",
+                LOG_ERR("Expecting DRF but not present, dropping PDU %d...",
                         seq_num);
                 pdu_destroy(pdu);
                 return 0;
@@ -1455,7 +1452,7 @@ int dtp_receive(struct dtp * instance,
                 }
 
                 if (dtcp) {
-                        if (dtcp_sv_update(dtcp, seq_num)) {
+                        if (dtcp_sv_update(dtcp, pci)) {
                                 LOG_ERR("Failed to update dtcp sv");
                                 goto fail;
                         }
@@ -1476,15 +1473,22 @@ int dtp_receive(struct dtp * instance,
         }
 
         spin_lock_irqsave(&instance->seqq->lock, flags);
+        to_post = rqueue_create_ni();
+        if (!to_post) {
+                LOG_ERR("Could not create to_post queue");
+                pdu_destroy(pdu);
+                return -1;
+        }
+
         LWE = dt_sv_rcv_lft_win(dt);
         LOG_DBG("DTP receive LWE: %u", LWE);
         while (pdu && (seq_num == LWE + 1)) {
                 dt_sv_rcv_lft_win_set(dt, seq_num);
 
-                pdu_post(instance, pdu);
+                rqueue_tail_push_ni(to_post, pdu);
 
-                pdu     = seq_queue_pop(instance->seqq->queue);
-                LWE     = dt_sv_rcv_lft_win(dt);
+                pdu = seq_queue_pop(instance->seqq->queue);
+                LWE = dt_sv_rcv_lft_win(dt);
                 if (!pdu)
                         break;
                 seq_num = pci_sequence_number_get(pdu_pci_get_rw(pdu));
@@ -1501,10 +1505,16 @@ int dtp_receive(struct dtp * instance,
         }
 
         if (dtcp) {
-                if (dtcp_sv_update(dtcp, seq_num)) {
+                if (dtcp_sv_update(dtcp, pci)) {
                         LOG_ERR("Failed to update dtcp sv");
                 }
         }
+        while (!rqueue_is_empty(to_post)) {
+                pdu = (struct pdu *) rqueue_head_pop(to_post);
+                if (pdu)
+                        pdu_post(instance, pdu);
+        }
+        rqueue_destroy(to_post, (void (*)(void *)) pdu_destroy);
 
         LOG_DBG("DTP receive ended...");
         return 0;

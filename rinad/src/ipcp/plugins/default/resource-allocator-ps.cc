@@ -27,48 +27,69 @@
 
 namespace rinad {
 
-class ResourceAllocatorPs: public IResourceAllocatorPs {
+class DefaultPDUFTGeneratorPs: public IPDUFTGeneratorPs {
 public:
-		ResourceAllocatorPs(IResourceAllocator * ra);
-		void routingTableUpdated(const std::list<rina::RoutingTableEntry*>& routing_table);
-		int set_policy_set_param(const std::string& name, const std::string& value);
-		virtual ~ResourceAllocatorPs() {}
+	DefaultPDUFTGeneratorPs(IResourceAllocator * ra);
+	void routingTableUpdated(const std::list<rina::RoutingTableEntry*>& routing_table);
+	int set_policy_set_param(const std::string& name, const std::string& value);
+	virtual ~DefaultPDUFTGeneratorPs() {}
 
 private:
         // Data model of the resource allocator component.
         IResourceAllocator * res_alloc;
 };
 
-ResourceAllocatorPs::ResourceAllocatorPs(IResourceAllocator * ra) : res_alloc(ra)
+DefaultPDUFTGeneratorPs::DefaultPDUFTGeneratorPs(IResourceAllocator * ra) : res_alloc(ra)
 { }
 
-
-void ResourceAllocatorPs::routingTableUpdated(
+void DefaultPDUFTGeneratorPs::routingTableUpdated(
 		const std::list<rina::RoutingTableEntry*>& rt)
 {
 	LOG_IPCP_DBG("Got %d entries in the routing table", rt.size());
 	//Compute PDU Forwarding Table
 	std::list<rina::PDUForwardingTableEntry *> pduft;
 	std::list<rina::RoutingTableEntry *>::const_iterator it;
+	std::list<rina::NHopAltList>::const_iterator jt;
+	std::list<unsigned int>::const_iterator kt;
 	rina::PDUForwardingTableEntry * entry;
+	INMinusOneFlowManager * n1fm;
 	int port_id = 0;
-	for (it = rt.begin(); it!= rt.end(); ++it){
+
+	n1fm = res_alloc->get_n_minus_one_flow_manager();
+
+	for (it = rt.begin(); it!= rt.end(); it++) {
 		entry = new rina::PDUForwardingTableEntry();
 		entry->address = (*it)->address;
 		entry->qosId = (*it)->qosId;
 
-		LOG_IPCP_DBG("Processing entry for destination %u", (*it)->address);
-		LOG_IPCP_DBG("Next hop address %u", (*it)->nextHopAddresses.front());
+		LOG_IPCP_DBG("Processing entry for destination %u",
+			     (*it)->address);
 
-		port_id = res_alloc->get_n_minus_one_flow_manager()->
-				getManagementFlowToNeighbour((*it)->nextHopAddresses.front());
+		for (jt = (*it)->nextHopAddresses.begin();
+				jt != (*it)->nextHopAddresses.end(); jt++) {
+			rina::PortIdAltlist portid_altlist;
 
-		if (port_id == -1) {
-			delete entry;
-		} else {
-			LOG_IPCP_DBG("N-1 port-id: %u", port_id);
-			entry->portIdAltlists.push_back(rina::PortIdAltlist(port_id));
+			for (kt = jt->alts.begin();
+					kt != jt->alts.end(); kt++) {
+				port_id = n1fm->
+					  getManagementFlowToNeighbour(*kt);
+				if (port_id == -1)
+					continue;
+
+				LOG_IPCP_DBG("NHOP %u --> N-1 port-id: %u",
+					     *kt, port_id);
+				portid_altlist.add_alt(port_id);
+			}
+
+			if (portid_altlist.alts.size()) {
+				entry->portIdAltlists.push_back(portid_altlist);
+			}
+		}
+
+		if (entry->portIdAltlists.size()) {
 			pduft.push_back(entry);
+		} else {
+			delete entry;
 		}
 	}
 
@@ -80,8 +101,8 @@ void ResourceAllocatorPs::routingTableUpdated(
 	}
 }
 
-int ResourceAllocatorPs::set_policy_set_param(const std::string& name,
-                                            const std::string& value)
+int DefaultPDUFTGeneratorPs::set_policy_set_param(const std::string& name,
+                                            	  const std::string& value)
 {
         LOG_IPCP_DBG("No policy-set-specific parameters to set (%s, %s)",
                         name.c_str(), value.c_str());
@@ -89,19 +110,19 @@ int ResourceAllocatorPs::set_policy_set_param(const std::string& name,
 }
 
 extern "C" rina::IPolicySet *
-createResourceAllocatorPs(rina::ApplicationEntity * ctx)
+createPDUFTGenPs(rina::ApplicationEntity * ctx)
 {
-		IResourceAllocator * ra = dynamic_cast<IResourceAllocator *>(ctx);
+	IResourceAllocator * ra = dynamic_cast<IResourceAllocator *>(ctx);
 
-		if (!ra) {
-			return NULL;
-		}
+	if (!ra) {
+		return NULL;
+	}
 
-		return new ResourceAllocatorPs(ra);
+	return new DefaultPDUFTGeneratorPs(ra);
 }
 
 extern "C" void
-destroyResourceAllocatorPs(rina::IPolicySet * ps)
+destroyPDUFTGenPs(rina::IPolicySet * ps)
 {
         if (ps) {
                 delete ps;

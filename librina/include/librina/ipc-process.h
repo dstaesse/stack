@@ -9,12 +9,12 @@
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
- * 
+ *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
@@ -487,7 +487,7 @@ public:
 	 * an error occurs
 	 */
 	void notifyIPCProcessInitialized(
-	                const ApplicationProcessNamingInformation& name);
+		const ApplicationProcessNamingInformation& name);
 
 	/**
 	 * True if the IPC Process has been successfully initialized, false
@@ -503,8 +503,8 @@ public:
 	 * @return
 	 */
 	ApplicationRegistration * appRegistered(
-	                        const ApplicationProcessNamingInformation& appName,
-	                        const ApplicationProcessNamingInformation& DIFName);
+		const ApplicationProcessNamingInformation& appName,
+		const ApplicationProcessNamingInformation& DIFName);
 
 	/**
 	 * The IPC Process has been unregistered from the DIF called DIFName,
@@ -513,7 +513,7 @@ public:
 	 * @param DIFName
 	 */
 	void appUnregistered(const ApplicationProcessNamingInformation& appName,
-	                const ApplicationProcessNamingInformation& DIFName);
+			     const ApplicationProcessNamingInformation& DIFName);
 
 	/**
 	 * Reply to the IPC Manager, informing it about the result of an "assign
@@ -535,8 +535,9 @@ public:
 	 * IPC Manager
 	 */
 	void enrollToDIFResponse(const EnrollToDAFRequestEvent& event,
-	                int result, const std::list<Neighbor> & newNeighbors,
-	                const DIFInformation& difInformation);
+				 int result,
+				 const std::list<Neighbor> & newNeighbors,
+				 const DIFInformation& difInformation);
 
 	/**
 	 * Reply to the IPC Manager, informing it about the result of a "register
@@ -632,8 +633,8 @@ public:
 	 * confirming/denying the flow
 	 */
 	FlowInformation allocateFlowResponse(const FlowRequestEvent& flowRequestEvent,
-			int result, bool notifySource);
-
+					     int result,
+					     bool notifySource);
 	/**
 	 * Invoked by the IPC Process to respond to the Application Process that
 	 * requested a flow deallocation
@@ -643,8 +644,9 @@ public:
 	 * @throws DeallocateFlowResponseException if there are issues
 	 * replying ot the application
 	 */
-	void notifyflowDeallocated(const FlowDeallocateRequestEvent flowDeallocateEvent,
-			int result);
+	void notifyflowDeallocated(
+		const FlowDeallocateRequestEvent flowDeallocateEvent,
+		int result);
 
 	/**
 	 * Invoked by the ipC Process to notify that a flow has been remotely
@@ -664,7 +666,7 @@ public:
 	 * @throws QueryRIBResponseException
 	 */
 	void queryRIBResponse(const QueryRIBRequestEvent& event, int result,
-			const std::list<RIBObjectData>& ribObjects);
+			      const std::list<RIBObjectData>& ribObjects);
 
 	/**
 	 * Request an available portId to the kernel
@@ -716,11 +718,11 @@ public:
 
 	/**
 	 * Forward to the IPC Manager a CDAP response message
-	 * @param event The event that triggered the operation
+	 * @param event Seqnum of the event that triggered the operation
 	 * @param The serialized CDAP message to forward
 	 * @throws FwdCDAPMsgException
 	 */
-	void forwardCDAPResponse(const rina::FwdCDAPMsgEvent& event,
+	void forwardCDAPResponse(unsigned sequenceNumber,
 				 const rina::SerializedObject& sermsg,
 				 int result);
 };
@@ -763,9 +765,14 @@ public:
         int destCepId;
 
         /**
-         * The EFCP connection policies
+         * The DTP connection policies
          */
-        ConnectionPolicies policies;
+        DTPConfig dtpConfig;
+
+        /**
+         * The DTCP connection policies
+         */
+        DTCPConfig dtcpConfig;
 
         /**
          * The id of the IPC Process using the flow supported by this
@@ -789,10 +796,20 @@ public:
         void setFlowUserIpcProcessId(unsigned short flowUserIpcProcessId);
         int getSourceCepId() const;
         void setSourceCepId(int sourceCepId);
-        const ConnectionPolicies& getPolicies() const;
-        void setPolicies(const ConnectionPolicies& policies);
+        const DTPConfig& getDTPConfig() const;
+        void setDTPConfig(const DTPConfig& dtpConfig);
+        const DTCPConfig& getDTCPConfig() const;
+        void setDTCPConfig(const DTCPConfig& dtcpConfig);
 #endif
         const std::string toString();
+};
+
+struct NHopAltList {
+	/** Next hop and its alternates */
+	std::list<unsigned int> alts;
+
+	NHopAltList() { }
+	NHopAltList(unsigned int x) { alts.push_back(x); }
 };
 
 /// Models an entry of the routing table
@@ -808,7 +825,7 @@ public:
 	unsigned int cost;
 
 	/** The next hop addresses */
-	std::list<unsigned int> nextHopAddresses;
+	std::list<NHopAltList> nextHopAddresses;
 
 	RoutingTableEntry();
 };
@@ -870,6 +887,17 @@ public:
 #endif
 };
 
+class EnableEncryptionResponseEvent: public IPCEvent {
+public:
+        EnableEncryptionResponseEvent(int res,
+                        int port_id, unsigned int sequenceNumber);
+
+        // The N-1 port-id where encryption was to be applied
+        int port_id;
+
+        // Result of the operation, 0 success
+        int result;
+};
 
 /**
  * FIXME: Quick hack to get multiple parameters back
@@ -981,6 +1009,9 @@ public:
          * @throws PDUForwardingTabeException if something goes wrong
          */
         unsigned int dumptPDUFT();
+
+        /// Request the kernel to enable encryption, decryption or both on a certain port
+        unsigned int enableEncryption(const EncryptionProfile& profile);
 
         /**
          * Request the Kernel IPC Process to modify a policy-set-related

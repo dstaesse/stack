@@ -53,6 +53,9 @@ void parse_policy(const Json::Value  & root,
 {
         Json::Value p = root[name];
 
+        if (p == 0)
+        	return;
+
         pol.name_    = p.get("name", string()).asString();
         pol.version_ = p.get("version", string()).asString();
 
@@ -235,77 +238,83 @@ void parse_rtx_flow_ctrl(const Json::Value  root,
 void parse_efcp_policies(const Json::Value  root,
                          rina::QoSCube    & cube)
 {
-        Json::Value con_pol = root["efcpPolicies"];
-        if (con_pol != 0) {
-                rina::ConnectionPolicies cp;
+        Json::Value efcp_conf = root["efcpPolicies"];
+        if (efcp_conf != 0) {
+                rina::DTPConfig dtpc;
 
-                cp.dtcp_present_ = con_pol.get("dtcpPresent",
-                                               cp.dtcp_present_).asBool();
+                dtpc.dtcp_present_ = efcp_conf.get("dtcpPresent",
+                                               dtpc.dtcp_present_).asBool();
+
+                parse_policy(efcp_conf,
+                             "dtpPolicySet",
+                             dtpc.dtp_policy_set_);
 
                 // DTCPConfig
-                Json::Value dtcp_conf = con_pol["dtcpConfiguration"];
+                Json::Value dtcp_conf = efcp_conf["dtcpConfiguration"];
                 if (dtcp_conf != 0) {
-                        rina::DTCPConfig dc;
+                        rina::DTCPConfig dtpcc;
 
-                        dc.flow_control_ =
+                        dtpcc.flow_control_ =
                                 dtcp_conf.get("flowControl",
-                                              dc.flow_control_).asBool();
+                                              dtpcc.flow_control_).asBool();
                         // flow_control_config_
-                        parse_flow_ctrl(dtcp_conf, dc);
+                        parse_flow_ctrl(dtcp_conf, dtpcc);
 
-                        dc.rtx_control_ =
+                        dtpcc.rtx_control_ =
                                 dtcp_conf.get("rtxControl",
-                                              dc.rtx_control_).asBool();
+                                              dtpcc.rtx_control_).asBool();
 
                         // rtx_control_config_
-                        parse_rtx_flow_ctrl(dtcp_conf, dc);
+                        parse_rtx_flow_ctrl(dtcp_conf, dtpcc);
+
+                        parse_policy(dtcp_conf,
+                                     "dtcpPolicySet",
+                                     dtpcc.dtcp_policy_set_);
 
                         parse_policy(dtcp_conf,
                                      "lostControlPduPolicy",
-                                     dc.lost_control_pdu_policy_);
+                                     dtpcc.lost_control_pdu_policy_);
 
                         parse_policy(dtcp_conf,
                                      "rttEstimatorPolicy",
-                                     dc.rtt_estimator_policy_);
+                                     dtpcc.rtt_estimator_policy_);
 
-                        cp.dtcp_configuration_ = dc;
+                        cube.dtcp_config_ = dtpcc;
                 }
 
-                parse_policy(dtcp_conf,
+                parse_policy(efcp_conf,
                              "rcvrTimerInactivityPolicy",
-                             cp.rcvr_timer_inactivity_policy_);
+                             dtpc.rcvr_timer_inactivity_policy_);
 
-                parse_policy(dtcp_conf,
+                parse_policy(efcp_conf,
                              "senderTimerInactivityPolicy",
-                             cp.sender_timer_inactivity_policy_);
+                             dtpc.sender_timer_inactivity_policy_);
 
-                parse_policy(con_pol,
+                parse_policy(efcp_conf,
                              "initialSeqNumPolicy",
-                             cp.initial_seq_num_policy_);
+                             dtpc.initial_seq_num_policy_);
 
-                cp.seq_num_rollover_threshold_ =
-                        con_pol.get("seqNumRolloverThreshold",
-                                    cp.seq_num_rollover_threshold_).asUInt();
-                cp.initial_a_timer_ =
-                        con_pol.get("initialATimer",
-                                    cp.initial_a_timer_).asUInt();
-                cp.partial_delivery_ =
-                        con_pol.get("partialDelivery",
-                                    cp.partial_delivery_).asBool();
-                cp.incomplete_delivery_ =
-                        con_pol.get("incompleteDelivery",
-                                    cp.incomplete_delivery_).asBool();
-                cp.in_order_delivery_ =
-                        con_pol.get("inOrderDelivery",
-                                    cp.in_order_delivery_).asBool();
-                cp.max_sdu_gap_ =
-                        con_pol.get("maxSduGap", cp.max_sdu_gap_).asInt();
+                dtpc.seq_num_rollover_threshold_ =
+                        efcp_conf.get("seqNumRolloverThreshold",
+                                    dtpc.seq_num_rollover_threshold_).asUInt();
+                dtpc.initial_a_timer_ =
+                        efcp_conf.get("initialATimer",
+                                    dtpc.initial_a_timer_).asUInt();
+                dtpc.partial_delivery_ =
+                        efcp_conf.get("partialDelivery",
+                                    dtpc.partial_delivery_).asBool();
+                dtpc.incomplete_delivery_ =
+                        efcp_conf.get("incompleteDelivery",
+                                    dtpc.incomplete_delivery_).asBool();
+                dtpc.in_order_delivery_ =
+                        efcp_conf.get("inOrderDelivery",
+                                    dtpc.in_order_delivery_).asBool();
+                dtpc.max_sdu_gap_ =
+                        efcp_conf.get("maxSduGap", dtpc.max_sdu_gap_).asInt();
 
-                cube.efcp_policies_ = cp;
+                cube.dtp_config_ = dtpc;
         }
 }
-
-
 
 void parse_ipc_to_create(const Json::Value          root,
                          list<IPCProcessToCreate> & ipcProcessesToCreate)
@@ -366,23 +375,6 @@ void parse_ipc_to_create(const Json::Value          root,
                 ipc.hostname = ipc_processes[i].get
                         ("hostName", string()).asString();
 
-                // SDU protection options
-                Json::Value sdu_prot =
-                        ipc_processes[i]["sduProtectionOptions"];
-                if (sdu_prot != 0) {
-                        for (unsigned int j = 0; j < sdu_prot.size(); j++) {
-                                string key = sdu_prot[j]
-                                        .get("nMinus1DIFName", string())
-                                        .asString();
-                                string value = sdu_prot[j]
-                                        .get("sduProtectionType", string())
-                                        .asString();
-                                ipc.sduProtectionOptions
-                                        .insert(pair<string, string>(key,
-                                                                     value));
-                        }
-                }
-
                 // parameters
                 Json::Value params = ipc_processes[i]["parameters"];
                 if (params != 0) {
@@ -430,29 +422,43 @@ void parse_local_conf(const Json::Value &         root,
                       rinad::LocalConfiguration & local)
 {
         Json::Value local_conf = root["localConfiguration"];
-        if (local_conf != 0) {
-                local.consolePort = local_conf
-                        .get("consolePort", local.consolePort)
-                        .asInt();
-                local.installationPath = local_conf
-                        .get("installationPath",
-                             local.installationPath)
-                        .asString();
-                if (local.libraryPath.empty())
-                	local.libraryPath = std::string(DEFAULT_BINDIR);
-                local.libraryPath = local_conf
-                        .get("libraryPath",
-                             local.libraryPath)
-                        .asString();
-                if (local.libraryPath.empty())
-                	local.libraryPath = std::string(DEFAULT_LIBDIR);
-                local.logPath = local_conf
-                        .get("logPath",
-                             local.logPath)
-                        .asString();
-                if (local.logPath.empty())
-                	local.logPath = std::string(DEFAULT_LOGDIR);
-        }
+	Json::Value plugins_paths;
+
+	if (local_conf == 0) {
+		return;
+	}
+
+	local.consolePort = local_conf.get("consolePort",
+					   local.consolePort).asInt();
+	if (local.consolePort == 0) {
+		local.consolePort = 32766;
+	}
+
+	local.installationPath = local_conf.get("installationPath",
+				 local.installationPath).asString();
+	if (local.installationPath.empty()) {
+		local.installationPath = std::string(DEFAULT_BINDIR);
+	}
+
+	local.libraryPath = local_conf.get("libraryPath",
+					   local.libraryPath).asString();
+	if (local.libraryPath.empty()) {
+		local.libraryPath = std::string(DEFAULT_LIBDIR);
+	}
+
+	local.logPath = local_conf.get("logPath", local.logPath).asString();
+	if (local.logPath.empty()) {
+		local.logPath = std::string(DEFAULT_LOGDIR);
+	}
+
+	plugins_paths = local_conf["pluginsPaths"];
+	if (plugins_paths != 0) {
+		for (unsigned int j = 0; j < plugins_paths.size();
+				j++) {
+			local.pluginsPaths.push_back(
+					plugins_paths[j].asString());
+		}
+	}
 }
 
 void parse_dif_configs(const Json::Value   & root,
@@ -515,6 +521,15 @@ bool parse_configuration(std::string& file_loc)
         IPCManager->loadConfig(config);
 
         return true;
+}
+
+void parse_auth_sduprot_profile(const Json::Value  & root,
+                  	        rina::AuthSDUProtectionProfile & profile)
+{
+	parse_policy(root, "authPolicy", profile.authPolicy);
+	parse_policy(root, "encryptPolicy", profile.encryptPolicy);
+	parse_policy(root, "TTLPolicy", profile.ttlPolicy);
+	parse_policy(root, "ErrorCheckPolicy", profile.crcPolicy);
 }
 
 rinad::DIFTemplate * parse_dif_template_config(const Json::Value & root,
@@ -626,76 +641,74 @@ rinad::DIFTemplate * parse_dif_template_config(const Json::Value & root,
 		rina::RMTConfiguration rc;
 
 		parse_policy(rmt_conf,
-				"rmtQueueMonitorPolicy",
-				rc.rmt_queue_monitor_policy_);
+			     "policySet",
+			     rc.policy_set_);
 
-		parse_policy(rmt_conf,
-				"rmtSchedulingPolicy",
-				rc.rmt_scheduling_policy_);
+	        Json::Value pft_conf = rmt_conf["pffConfiguration"];
+                if (pft_conf != 0) {
+                        rina::PFTConfiguration pftc;
 
-		parse_policy(rmt_conf,
-				"maxQueuePolicy",
-				rc.max_queue_policy_);
+                        parse_policy(pft_conf,
+                                     "policySet",
+                                     pftc.policy_set_);
 
+                        rc.pft_conf_ = pftc;
+                }
 		dif_template->rmtConfiguration = rc;
 	}
 
-	// std::map<std::string, std::string> policy_sets
-	Json::Value policy_sets = root["policySets"];
-	if (policy_sets != 0) {
-		Json::Value::Members members =
-				policy_sets.getMemberNames();
-		for (unsigned int j = 0;
-				j < members.size();
-				j++) {
-			string value =
-					policy_sets.get(members[j],
-							string())
-							.asString();
-			dif_template->policySets.insert
-			(pair<string, string>
-			(members[j], value));
-		}
+	// flowAllocatorConfiguration;
+	Json::Value fa_conf = root["flowAllocatorConfiguration"];
+	if (fa_conf != 0) {
+		rina::FlowAllocatorConfiguration fac;
+
+		parse_policy(fa_conf,
+			     "policySet",
+			     fac.policy_set_);
+
+		dif_template->faConfiguration = fac;
 	}
 
-	// std::map<std::string, std::string> policyParameters
-	Json::Value policy_set_params = root["policyParameters"];
-	if (policy_set_params != 0) {
-		Json::Value::Members members =
-				policy_set_params.getMemberNames();
-		for (unsigned int j = 0;
-				j < members.size();
-				j++) {
-			string value = policy_set_params
-					.get(members[j],
-							string()).asString();
-			dif_template->policySetParameters.insert
-			(pair<string, string>
-			(members[j], value));
-		}
+	// routingConfiguration;
+	Json::Value routing_conf = root["routingConfiguration"];
+	if (routing_conf != 0) {
+		rina::RoutingConfiguration rc;
+
+		parse_policy(routing_conf,
+			     "policySet",
+			     rc.policy_set_);
+
+		dif_template->routingConfiguration = rc;
 	}
 
-	// NMinusOneFlowsConfiguration
-	//       nMinusOneFlowsConfiguration;
-	Json::Value flow_conf = root["nMinusOneFlowsConfiguration"];
-	if (flow_conf != 0) {
-		rinad::NMinusOneFlowsConfiguration fc;
+	// resourceAllocatorConfiguration;
+	Json::Value ra_conf = root["resourceAllocatorConfiguration"];
+	if (ra_conf != 0) {
+		rina::ResourceAllocatorConfiguration rac;
 
-		fc.managementFlowQoSId =
-				flow_conf.get("managementFlowQosId",
-						fc.managementFlowQoSId)
-						.asInt();
+	        Json::Value pduftg_conf = ra_conf["pduftgConfiguration"];
+                if (pduftg_conf != 0) {
+                        rina::PDUFTGConfiguration pftgc;
 
-		Json::Value data_flow =
-				flow_conf["dataFlowsQosIds"];
-		for (unsigned int j = 0;
-				j < data_flow.size();
-				j++) {
-			fc.dataFlowsQoSIds.push_back
-			(data_flow[j].asInt());
-		}
+		        parse_policy(pduftg_conf,
+			             "policySet",
+			             pftgc.policy_set_);
+		        rac.pduftg_conf_ = pftgc;
+                }
 
-		dif_template->nMinusOneFlowsConfiguration = fc;
+		dif_template->raConfiguration = rac;
+	}
+
+	// namespaceMangerConfiguration;
+	Json::Value nsm_conf = root["namespaceManagerConfiguration"];
+	if (nsm_conf != 0) {
+		rina::NamespaceManagerConfiguration nsmc;
+
+		parse_policy(nsm_conf,
+			     "policySet",
+			     nsmc.policy_set_);
+
+		dif_template->nsmConfiguration = nsmc;
 	}
 
 	// std::list<KnownIPCProcessAddress>
@@ -715,58 +728,6 @@ rinad::DIFTemplate * parse_dif_template_config(const Json::Value & root,
 
 			dif_template->knownIPCProcessAddresses.push_back(kn);
 		}
-	}
-
-	// rina::PDUFTableGeneratorConfiguration
-	// pdufTableGeneratorConfiguration;
-	Json::Value pft = root["pdufTableGeneratorConfiguration"];
-	if (pft != 0) {
-		rina::PDUFTableGeneratorConfiguration pf;
-
-		parse_policy(pft, "pduFtGeneratorPolicy",
-				pf.pduft_generator_policy_);
-
-		Json::Value lsr_config = pft["linkStateRoutingConfiguration"];
-
-		rina::LinkStateRoutingConfiguration lsr;
-
-		lsr.object_maximum_age_ =
-				lsr_config.get("objectMaximumAge",
-						lsr.object_maximum_age_)
-						.asInt();
-
-		lsr.wait_until_read_cdap_ =
-				lsr_config.get("waitUntilReadCdap",
-						lsr.wait_until_read_cdap_)
-						.asInt();
-
-		lsr.wait_until_error_ =
-				lsr_config.get("waitUntilError",
-						lsr.wait_until_error_)
-						.asInt();
-
-		lsr.wait_until_pduft_computation_ =
-				lsr_config.get("waitUntilPduftComputation",
-						lsr.wait_until_pduft_computation_)
-						.asInt();
-
-		lsr.wait_until_fsodb_propagation_ =
-				lsr_config.get("waitUntilFsodbPropagation",
-						lsr.wait_until_fsodb_propagation_)
-						.asInt();
-
-		lsr.wait_until_age_increment_ =
-				lsr_config.get("waitUntilAgeIncrement",
-						lsr.wait_until_age_increment_)
-						.asInt();
-
-		lsr.routing_algorithm_ =
-				lsr_config.get("routingAlgorithm",
-						string())
-						.asString();
-
-		pf.link_state_routing_configuration_  = lsr;
-		dif_template->pdufTableGeneratorConfiguration = pf;
 	}
 
 	// std::list<AddressPrefixConfiguration> addressPrefixes;
@@ -795,35 +756,55 @@ rinad::DIFTemplate * parse_dif_template_config(const Json::Value & root,
 	// enrollmentTaskConfiguration;
 	Json::Value etc = root["enrollmentTaskConfiguration"];
 	if (etc != 0) {
-		rina::EnrollmentTaskConfiguration et;
+		rina::EnrollmentTaskConfiguration et_conf;
 
-		et.enrollment_timeout_in_ms_ =
-				etc.get("enrollTimeoutInMs",
-						et.enrollment_timeout_in_ms_)
-						.asInt();
+		parse_policy(etc,
+			     "policySet",
+			     et_conf.policy_set_);
 
-		et.watchdog_period_in_ms_ =
-				etc.get("watchdogPeriodInMs",
-						et.watchdog_period_in_ms_)
-						.asInt();
-
-		et.declared_dead_interval_in_ms_ =
-				etc.get("declaredDeadIntervalInMs",
-						et.declared_dead_interval_in_ms_)
-						.asInt();
-
-		et.max_number_of_enrollment_attempts_ =
-				etc.get("maxEnrollmentRetries",
-						et.max_number_of_enrollment_attempts_)
-						.asInt();
-
-		et.neighbor_enroller_period_in_ms_ =
-				etc.get("neighborsEnrollerPeriodInMs",
-						et.neighbor_enroller_period_in_ms_)
-						.asInt();
-
-		dif_template->etConfiguration = et;
+		dif_template->etConfiguration = et_conf;
 	}
+
+        //sduProtectionConfiguration
+        Json::Value secManConf = root["securityManagerConfiguration"];
+        if (secManConf != 0){
+        	rina::SecurityManagerConfiguration sm_conf;
+
+        	if (secManConf["policySet"] != 0) {
+        		parse_policy(secManConf,
+        			     "policySet",
+        			     sm_conf.policy_set_);
+        	}
+
+        	Json::Value profiles = secManConf["authSDUProtProfiles"];
+        	if (profiles != 0) {
+        		Json::Value defaultProfile = profiles["default"];
+        		if (defaultProfile != 0) {
+        			parse_auth_sduprot_profile(defaultProfile,
+        						   sm_conf.default_auth_profile);
+        		}
+
+        		Json::Value specifics = profiles["specific"];
+        		if (specifics != 0) {
+        			for (unsigned int j = 0;
+        					j < specifics.size();
+        					j++) {
+        				rina::AuthSDUProtectionProfile profile;
+        				std::string dif_name;
+
+        				parse_auth_sduprot_profile(specifics[j], profile);
+
+        				dif_name = specifics[j]
+        				                   .get("underlyingDIF", dif_name)
+        				                   .asString();
+
+        				sm_conf.specific_auth_profiles[dif_name] = profile;
+        			}
+        		}
+        	}
+
+        	dif_template->secManConfiguration = sm_conf;
+        }
 
 	// configParameters;
 	Json::Value confParams = root["configParameters"];

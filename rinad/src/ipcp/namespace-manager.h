@@ -22,8 +22,6 @@
 #ifndef IPCP_NAMESPACE_MANAGER_HH
 #define IPCP_NAMESPACE_MANAGER_HH
 
-#ifdef __cplusplus
-
 #include <librina/ipc-process.h>
 #include <librina/internal-events.h>
 
@@ -118,6 +116,8 @@ public:
 	void processApplicationUnregistrationRequestEvent(
 				const rina::ApplicationUnregistrationRequestEvent& event);
 	unsigned int getAdressByname(const rina::ApplicationProcessNamingInformation& name);
+	rina::ApplicationRegistrationInformation
+		get_reg_app_info(const rina::ApplicationProcessNamingInformation name);
 
 private:
 	/// The directory forwarding table
@@ -135,8 +135,6 @@ private:
 			int result);
 };
 
-}
+} //namespace rinad
 
-#endif
-
-#endif
+#endif //IPCP_NAMESPACE_MANAGER_HH

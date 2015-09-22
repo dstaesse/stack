@@ -2,6 +2,9 @@
  * Shim IPC process for hypervisors
  *
  *   Vincenzo Maffione <v.maffione@nextworks.it>
+ *
+ * CONTRIBUTORS:
+ *
  *   Leonardo Bergesio <leonardo.bergesio@i2cat.net>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -870,8 +873,8 @@ shim_hv_recv_callback(void *opaque, unsigned int ch, const char *data, int len)
 
 /* Register an application to this IPC process. */
 static int
-shim_hv_application_register(struct ipcp_instance_data *priv,
-                             const struct name *application_name)
+shim_hv_application_register(struct ipcp_instance_data * priv,
+                             const struct name         * application_name)
 {
         struct name_list_element *cur;
         char *tmpstr = name_tostring(application_name);
@@ -1053,8 +1056,9 @@ shim_hv_assign_to_dif(struct ipcp_instance_data *priv,
  * SDU to a flow managed by this shim IPC process.
  */
 static int
-shim_hv_sdu_write(struct ipcp_instance_data *priv, port_id_t port_id,
-                  struct sdu *sdu)
+shim_hv_sdu_write(struct ipcp_instance_data * priv,
+		  port_id_t 		      port_id,
+                  struct sdu *		      sdu)
 {
         unsigned int ch = port_id_to_channel(priv, port_id);
         struct buffer *buf = sdu_buffer_rw(sdu);
@@ -1109,6 +1113,15 @@ shim_hv_ipcp_name(struct ipcp_instance_data *priv)
         return &priv->name;
 }
 
+static const struct name *
+shim_hv_dif_name(struct ipcp_instance_data *priv)
+{
+        ASSERT(priv);
+        ASSERT(name_is_ok(&priv->dif_name));
+
+        return &priv->dif_name;
+}
+
 static int shim_hv_query_rib(struct ipcp_instance_data * data,
                              struct list_head *          entries,
                              const string_t *            object_class,
@@ -1129,6 +1142,7 @@ static struct ipcp_instance_ops shim_hv_ipcp_ops = {
         .flow_binding_ipcp         = NULL,
         .flow_unbinding_ipcp       = NULL,
         .flow_unbinding_user_ipcp  = shim_hv_unbind_user_ipcp,
+	.nm1_flow_state_change	   = NULL,
 
         .application_register      = shim_hv_application_register,
         .application_unregister    = shim_hv_application_unregister,
@@ -1148,10 +1162,10 @@ static struct ipcp_instance_ops shim_hv_ipcp_ops = {
         .mgmt_sdu_write            = NULL,
         .mgmt_sdu_post             = NULL,
 
-        .pft_add                   = NULL,
-        .pft_remove                = NULL,
-        .pft_dump                  = NULL,
-        .pft_flush                 = NULL,
+        .pff_add                   = NULL,
+        .pff_remove                = NULL,
+        .pff_dump                  = NULL,
+        .pff_flush                 = NULL,
 
         .query_rib		   = shim_hv_query_rib,
 
@@ -1159,6 +1173,8 @@ static struct ipcp_instance_ops shim_hv_ipcp_ops = {
 
         .set_policy_set_param      = NULL,
         .select_policy_set         = NULL,
+        .enable_encryption	   = NULL,
+        .dif_name		   = shim_hv_dif_name
 };
 
 /* Initialize the IPC process factory. */
@@ -1345,4 +1361,3 @@ module_exit(shim_hv_fini);
 MODULE_DESCRIPTION("RINA Shim IPC for Hypervisors");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Vincenzo Maffione <v.maffione@nextworks.it>");
-MODULE_AUTHOR("Leonardo Bergesio  <leonardo.bergesio@i2cat.net>");

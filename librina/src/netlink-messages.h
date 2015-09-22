@@ -8,12 +8,12 @@
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
- * 
+ *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
@@ -72,27 +72,29 @@ enum RINANetlinkOperationCode{
         RINA_C_IPCM_SET_POLICY_SET_PARAM_RESPONSE, /* 38, IPC Process -> IPC Manager */
         RINA_C_IPCM_SELECT_POLICY_SET_REQUEST, /* 39, IPC Manager -> IPC Process */
         RINA_C_IPCM_SELECT_POLICY_SET_RESPONSE, /* 40, IPC Process -> IPC Manager */
+        RINA_C_IPCP_ENABLE_ENCRYPTION_REQUEST, /* 41, IPC Process (user space) -> IPC Process (kernel) */
+        RINA_C_IPCP_ENABLE_ENCRYPTION_RESPONSE, /* 42, IPC Process (kernel) -> IPC Process (user space) */
 
         /* Userspace only messages MUST be after all the messages that are also
          * handled by the kernel. */
-	RINA_C_IPCM_IPC_PROCESS_INITIALIZED, /* 41 IPC Process -> IPC Manager */
-	RINA_C_APP_ALLOCATE_FLOW_REQUEST, /* 42 Allocate flow request, Application -> IPC Manager */
-	RINA_C_APP_ALLOCATE_FLOW_REQUEST_RESULT, /* 43 Response to an application allocate flow request, IPC Manager -> Application */
-	RINA_C_APP_ALLOCATE_FLOW_REQUEST_ARRIVED, /* 44 Allocate flow request from a remote application, IPC Manager -> Application */
-	RINA_C_APP_ALLOCATE_FLOW_RESPONSE, /* 45 Allocate flow response to an allocate request arrived operation, Application -> IPC Manager */
-	RINA_C_APP_DEALLOCATE_FLOW_REQUEST, /* 46 Application -> IPC Manager */
-	RINA_C_APP_DEALLOCATE_FLOW_RESPONSE, /* 47 IPC Manager -> Application */
-	RINA_C_APP_FLOW_DEALLOCATED_NOTIFICATION, /* 48 IPC Manager -> Application, flow deallocated without the application having requested it */
-	RINA_C_APP_REGISTER_APPLICATION_REQUEST, /* 49 Application -> IPC Manager */
-	RINA_C_APP_REGISTER_APPLICATION_RESPONSE, /* 50 IPC Manager -> Application */
-	RINA_C_APP_UNREGISTER_APPLICATION_REQUEST, /* 51 Application -> IPC Manager */
-	RINA_C_APP_UNREGISTER_APPLICATION_RESPONSE, /* 52 IPC Manager -> Application */
-	RINA_C_APP_APPLICATION_REGISTRATION_CANCELED_NOTIFICATION, /* 53 IPC Manager -> Application, application unregistered without the application having requested it */
-	RINA_C_APP_GET_DIF_PROPERTIES_REQUEST, /* 54 Application -> IPC Manager */
-	RINA_C_APP_GET_DIF_PROPERTIES_RESPONSE, /* 55 IPC Manager -> Application */
-        RINA_C_IPCM_PLUGIN_LOAD_REQUEST, /* 56, IPC Manager -> IPC Process */
-        RINA_C_IPCM_PLUGIN_LOAD_RESPONSE, /* 57, IPC Process -> IPC Manager */
-        RINA_C_IPCM_FWD_CDAP_MSG_REQUEST, /* 58, IPC Manager -> IPC Process */
+	RINA_C_IPCM_IPC_PROCESS_INITIALIZED, /* 43 IPC Process -> IPC Manager */
+	RINA_C_APP_ALLOCATE_FLOW_REQUEST, /* 44 Allocate flow request, Application -> IPC Manager */
+	RINA_C_APP_ALLOCATE_FLOW_REQUEST_RESULT, /* 45 Response to an application allocate flow request, IPC Manager -> Application */
+	RINA_C_APP_ALLOCATE_FLOW_REQUEST_ARRIVED, /* 46 Allocate flow request from a remote application, IPC Manager -> Application */
+	RINA_C_APP_ALLOCATE_FLOW_RESPONSE, /* 47 Allocate flow response to an allocate request arrived operation, Application -> IPC Manager */
+	RINA_C_APP_DEALLOCATE_FLOW_REQUEST, /* 48 Application -> IPC Manager */
+	RINA_C_APP_DEALLOCATE_FLOW_RESPONSE, /* 49 IPC Manager -> Application */
+	RINA_C_APP_FLOW_DEALLOCATED_NOTIFICATION, /* 50 IPC Manager -> Application, flow deallocated without the application having requested it */
+	RINA_C_APP_REGISTER_APPLICATION_REQUEST, /* 51 Application -> IPC Manager */
+	RINA_C_APP_REGISTER_APPLICATION_RESPONSE, /* 52 IPC Manager -> Application */
+	RINA_C_APP_UNREGISTER_APPLICATION_REQUEST, /* 53 Application -> IPC Manager */
+	RINA_C_APP_UNREGISTER_APPLICATION_RESPONSE, /* 54 IPC Manager -> Application */
+	RINA_C_APP_APPLICATION_REGISTRATION_CANCELED_NOTIFICATION, /* 55 IPC Manager -> Application, application unregistered without the application having requested it */
+	RINA_C_APP_GET_DIF_PROPERTIES_REQUEST, /* 56 Application -> IPC Manager */
+	RINA_C_APP_GET_DIF_PROPERTIES_RESPONSE, /* 57 IPC Manager -> Application */
+        RINA_C_IPCM_PLUGIN_LOAD_REQUEST, /* 58, IPC Manager -> IPC Process */
+        RINA_C_IPCM_PLUGIN_LOAD_RESPONSE, /* 59, IPC Process -> IPC Manager */
+        RINA_C_IPCM_FWD_CDAP_MSG_REQUEST, /* 60, IPC Manager -> IPC Process */
 	__RINA_C_MAX,
  };
 
@@ -308,7 +310,6 @@ class AppAllocateFlowResponseMessage: public BaseNetlinkResponseMessage {
 	 * wants the IPC Process to reply to the source or not
 	 */
 	bool notifySource;
-
 public:
 	AppAllocateFlowResponseMessage();
 	bool isNotifySource() const;
@@ -574,7 +575,7 @@ public:
  */
 class IpcmRegisterApplicationRequestMessage:
 		public BaseNetlinkMessage {
-
+public:
 	/** The name of the application to be registered */
 	ApplicationProcessNamingInformation applicationName;
 
@@ -584,7 +585,6 @@ class IpcmRegisterApplicationRequestMessage:
 	/** The DIF name where the application wants to register */
 	ApplicationProcessNamingInformation difName;
 
-public:
 	IpcmRegisterApplicationRequestMessage();
 	const ApplicationProcessNamingInformation& getApplicationName() const;
 	void setApplicationName(
@@ -1163,7 +1163,7 @@ public:
  * connection to the EFCP module in the kernel.
  */
 class IpcpConnectionCreateRequestMessage: public BaseNetlinkMessage {
-        
+
         /** Contains the data of the connection to be created */
         Connection connection;
 
@@ -1390,6 +1390,22 @@ public:
         void setEntries(const std::list<PDUForwardingTableEntry>& entries);
         void addEntry(const PDUForwardingTableEntry& entry);
         IPCEvent* toIPCEvent();
+};
+
+class IPCPEnableEncryptionRequestMessage : public BaseNetlinkMessage {
+public:
+	IPCPEnableEncryptionRequestMessage();
+	IPCEvent* toIPCEvent();
+
+	EncryptionProfile profile;
+};
+
+class IPCPEnableEncryptionResponseMessage: public BaseNetlinkResponseMessage {
+public:
+	IPCPEnableEncryptionResponseMessage();
+	IPCEvent* toIPCEvent();
+
+	int port_id;
 };
 
 }

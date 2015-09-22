@@ -35,6 +35,7 @@
 #include <librina/patterns.h>
 
 #include "dif-template-manager.h"
+#include "catalog.h"
 
 //Addons
 #include "addon.h"
@@ -357,8 +358,7 @@ public:
 	// @ret IPCM_FAILURE on failure, otherwise the IPCM_PENDING
 	ipcm_res_t register_at_dif(Addon* callee, Promise* promise,
 			const unsigned short ipcp_id,
-			const rina::ApplicationProcessNamingInformation&
-			    difName);
+			const rina::ApplicationProcessNamingInformation& difName);
 
 	//
 	// Enroll IPCP to a single DIF
@@ -462,9 +462,9 @@ public:
 	//
 	// @ret IPCM_FAILURE on failure, otherwise the IPCM_PENDING
 	ipcm_res_t plugin_load(Addon* callee, Promise* promise,
-						const unsigned short ipcp_id,
-						const std::string& plugin_name,
-						bool load);
+			       const unsigned short ipcp_id,
+			       const std::string& plugin_name,
+			       bool load);
 
 	//
 	// Get information about plugin
@@ -474,8 +474,33 @@ public:
 	//               the policy sets supported by the plugin
 	//
 	// @ret IPCM_FAILURE on failure, otherwise the IPCM_SUCCESS
-        ipcm_res plugin_get_info(const std::string& plugin_name,
-				 std::list<rina::PsInfo>& result);
+        ipcm_res_t plugin_get_info(const std::string& plugin_name,
+				   std::list<rina::PsInfo>& result);
+
+        //
+        // Just used for testing support for IPCP RIB delegation
+        //
+	// @param promise Promise object containing the future result of the
+	// operation. The promise shall always be accessible until the
+	// operation has been finished, so promise->ret value is different than
+	// IPCM_PENDING.
+        // @param ipcp_id the IPCP id
+        // @param object_class the class of the object to be read
+        // @param object_name the name of the object to be read
+        //
+        // @ret IPCM_PENDING if the NL message could be sent to the IPCP,
+        // IPCM_FAILURE otherwise
+	ipcm_res_t read_ipcp_ribobj(Addon* callee, Promise* promise,
+			      const unsigned short ipcp_id,
+			      const std::string& object_class,
+			      const std::string& object_name);
+
+	//
+	// Update policy-set catalog, with the plugins stored in
+	// the pluginsPaths configuration variable
+	//
+	// @ret IPCM_FAILURE on failure, otherwise the IPCM_SUCCESS
+	ipcm_res_t update_catalog(Addon* callee);
 
 	//
 	// Get the current logging debug level
@@ -670,6 +695,18 @@ protected:
 	void ipc_process_select_policy_set_response_handler(
 					rina::SelectPolicySetResponseEvent *e);
 
+	//
+	// Load kernel space policy plugin
+	//
+	// @param plugin_name Name of the kernel module containing the
+	//		      plugin to be loaded
+	// @param load        True if the plugin is to be loaded,
+	//                    false if the plugin is to be unloaded.
+	// @ret IPCM_SUCCESS when load/unload is successful, otherwise
+	//	IPCM_FAILURE
+	ipcm_res_t plugin_load_kernel(const std::string& plugin_name,
+				      bool load);
+
 	/*
 	* Get the transaction state. Template parameter is the type of the
 	* specific state required for the type of transaction
@@ -787,6 +824,10 @@ public:
 
 	//The DIF template manager
 	DIFTemplateManager * dif_template_manager;
+
+	//Catalog of policies
+	Catalog catalog;
+
 private:
 	//Singleton
 	IPCManager_();

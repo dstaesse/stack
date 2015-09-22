@@ -4,6 +4,9 @@
  *    Francesco Salvestrini <f.salvestrini@nextworks.it>
  *    Sander Vrijders       <sander.vrijders@intec.ugent.be>
  *    Douwe De Bock         <douwe.debock@ugent.be>
+ *
+ * CONTRIBUTORS:
+ *
  *    Leonardo Bergesio     <leonardo.bergesio@i2cat.net>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -2401,6 +2404,16 @@ static const struct name * tcp_udp_ipcp_name(struct ipcp_instance_data * data)
         return data->name;
 }
 
+static const struct name * tcp_udp_dif_name(struct ipcp_instance_data * data)
+{
+        LOG_HBEAT;
+
+        ASSERT(data);
+        ASSERT(name_is_ok(data->dif_name));
+
+        return data->dif_name;
+}
+
 static int tcp_udp_query_rib(struct ipcp_instance_data * data,
                              struct list_head *          entries,
                              const string_t *            object_class,
@@ -2421,6 +2434,7 @@ static struct ipcp_instance_ops tcp_udp_instance_ops = {
         .flow_binding_ipcp         = NULL,
         .flow_unbinding_ipcp       = NULL,
         .flow_unbinding_user_ipcp  = tcp_udp_unbind_user_ipcp,
+	.nm1_flow_state_change	   = NULL,
 
         .application_register      = tcp_udp_application_register,
         .application_unregister    = tcp_udp_application_unregister,
@@ -2440,17 +2454,20 @@ static struct ipcp_instance_ops tcp_udp_instance_ops = {
         .mgmt_sdu_write            = NULL,
         .mgmt_sdu_post             = NULL,
 
-        .pft_add                   = NULL,
-        .pft_remove                = NULL,
-        .pft_dump                  = NULL,
-        .pft_flush                 = NULL,
+        .pff_add                   = NULL,
+        .pff_remove                = NULL,
+        .pff_dump                  = NULL,
+        .pff_flush                 = NULL,
 
         .query_rib	           = tcp_udp_query_rib,
 
         .ipcp_name                 = tcp_udp_ipcp_name,
+        .dif_name                  = tcp_udp_dif_name,
 
         .set_policy_set_param      = NULL,
         .select_policy_set         = NULL,
+        .enable_encryption	   = NULL,
+        .dif_name		   = tcp_udp_dif_name
 };
 
 static struct ipcp_factory_data {
@@ -2791,4 +2808,3 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Francesco Salvestrini <f.salvestrini@nextworks.it>");
 MODULE_AUTHOR("Sander Vrijders <sander.vrijders@intec.ugent.be>");
 MODULE_AUTHOR("Douwe De Bock <douwe.debock@ugent.be>");
-MODULE_AUTHOR("Leonardo Beregsio  <leonardo.bergesio@i2cat.net>");

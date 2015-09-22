@@ -33,6 +33,9 @@ public:
         static const uint max_buffer_size;
 
 protected:
+
+        /// @param true if flows directed to this application will
+        /// have a blocking read/write behaviour, false otherwise
         void applicationRegister();
 
         std::string dif_name;

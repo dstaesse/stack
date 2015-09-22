@@ -8,12 +8,12 @@
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
- * 
+ *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
@@ -68,6 +68,16 @@ public:
 		IPCException("Unknown flow"){
 	}
 	UnknownFlowException(const std::string& description):
+		IPCException(description){
+	}
+};
+
+class InvalidArgumentsException: public IPCException {
+public:
+	InvalidArgumentsException():
+		IPCException("Invalid arguments"){
+	}
+	InvalidArgumentsException(const std::string& description):
 		IPCException(description){
 	}
 };
@@ -252,7 +262,8 @@ protected:
 	FlowInformation internalAllocateFlowResponse(const FlowRequestEvent& flowRequestEvent,
 						     int result,
 						     bool notifySource,
-						     unsigned short ipcProcessId);
+						     unsigned short ipcProcessId,
+						     bool blocking = true);
 
 public:
 	IPCManager();
@@ -400,13 +411,35 @@ public:
 	 * indicates the deny code
 	 * @param notifySource if true the source IPC Process will get
 	 * the allocate flow response message back, otherwise it will be ignored
+	 * @param blocking if true, read and writeSDU calls from/to this flow
+	 * will block
 	 * @return Flow If the flow is accepted, returns the flow object
 	 * @throws FlowAllocationException If there are problems
 	 * confirming/denying the flow
 	 */
-	 FlowInformation allocateFlowResponse(const FlowRequestEvent& flowRequestEvent,
+	FlowInformation allocateFlowResponse(const FlowRequestEvent& flowRequestEvent,
 				  	      int result,
-				  	      bool notifySource);
+				  	      bool notifySource,
+					      bool blocking = true);
+
+        /**
+	 * Checks whether this flow has blocking or non-blocking I/O
+	 *
+	 * @param portId, the portId of the flow
+	 * @return > 0 if blocking, 0 if non-blocking, < 0 upon error
+	 * @throws bricks
+	 */
+	int flowOptsBlocking(int portId);
+
+	/**
+	 * Sets this flow to blocking or non-blocking I/O
+	 *
+	 * @param portId, the portId of the flow
+	 * @param blocking true for blocking, false for non-blocking
+	 * @return > 0 if blocking, 0 if non-blocking, < 0 upon error
+	 * @throws bricks
+	 */
+	int setFlowOptsBlocking(int portId, bool blocking);
 
 	/**
 	 * Requests the deallocation of a flow
@@ -434,26 +467,30 @@ public:
 	 */
 	void flowDeallocated(int portId);
 
-	/**
-	 * Reads an SDU from the flow. This function will block until there is an
-	 * SDU available.
-	 *
-	 * @param sdu A buffer to store the SDU data
-	 * @param maxBytes The maximum number of bytes to read
-	 * @return int The number of bytes read
-	 * @throws IPCException if the flow is not in the ALLOCATED state
-	 */
+	/// Reads an SDU from the flow. This function will block until there is an
+	/// SDU available.
+	///
+	/// @param sdu A buffer to store the SDU data
+	/// @param maxBytes The maximum number of bytes to read
+	/// @return int The number of bytes read
+	/// @throws UnknownFlowException if the port-id is not valid
+	/// @throws FlowNotAllocatedException if the flow has been deallocated
+	/// @throws InvalidArgumentsException if the arguments of the call are not valid
+	/// @throws ReadSDUException if an error happens while reading the SDU
+	/// @throws IPCException if an unknown error happens
 	int readSDU(int portId, void * sdu, int maxBytes);
 
-	/**
-	 * Writes an SDU to the flow
-	 *
-	 * @param sdu A buffer that contains the SDU data
-	 * @param size The size of the SDU data, in bytes
-	 * @throws IPCException if the flow is not in the ALLOCATED state or
-	 * there are problems writing to the flow
-	 */
-	void writeSDU(int portId, void * sdu, int size);
+	/// Writes an SDU to the flow
+	///
+	/// @param sdu A buffer that contains the SDU data
+	/// @param size The size of the SDU data, in bytes
+	/// @return int The numbe of bytes written
+	/// @throws UnknownFlowException if the port-id is not valid
+	/// @throws FlowNotAllocatedException if the flow has been deallocated
+	/// @throws InvalidArgumentsException if the arguments of the call are not valid
+	/// @throws WriteSDUException if an error happens while writing the SDU
+	/// @throws IPCException if an unknown error happens
+	int writeSDU(int portId, void * sdu, int size);
 
 	/**
 	 * Returns the flows that are currently allocated

@@ -8,12 +8,12 @@
 // modify it under the terms of the GNU Lesser General Public
 // License as published by the Free Software Foundation; either
 // version 2.1 of the License, or (at your option) any later version.
-// 
+//
 // This library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // Lesser General Public License for more details.
-// 
+//
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
@@ -1297,17 +1297,16 @@ int testIpcmAssignToDIFRequestMessage() {
 	efcpConfiguration.add_qos_cube(qosCube);
 	qosCube = new QoSCube("cube 2", 2);
 	efcpConfiguration.add_qos_cube(qosCube);
-	qosCube->set_efcp_policies(ConnectionPolicies());
+	qosCube->set_dtp_config(DTPConfig());
+	qosCube->set_dtcp_config(DTCPConfig());
 	difConfiguration.set_efcp_configuration(efcpConfiguration);
-	difConfiguration.rmt_configuration_.rmt_scheduling_policy_.name_ = "FancySchedulingPolicy";
-	difConfiguration.pduft_generator_configuration_.pduft_generator_policy_.name_ = "LinkStateRouting";
-	difConfiguration.pduft_generator_configuration_.link_state_routing_configuration_.object_maximum_age_ = 4;
-	difConfiguration.pduft_generator_configuration_.link_state_routing_configuration_.routing_algorithm_ = "FancyAlgorithm";
-	difConfiguration.pduft_generator_configuration_.link_state_routing_configuration_.wait_until_age_increment_ = 23;
-	difConfiguration.pduft_generator_configuration_.link_state_routing_configuration_.wait_until_error_ = 11;
-	difConfiguration.pduft_generator_configuration_.link_state_routing_configuration_.wait_until_fsodb_propagation_ = 10;
-	difConfiguration.pduft_generator_configuration_.link_state_routing_configuration_.wait_until_pduft_computation_ = 2;
-	difConfiguration.pduft_generator_configuration_.link_state_routing_configuration_.wait_until_read_cdap_ = 3;
+	difConfiguration.rmt_configuration_.policy_set_.name_ = "FancySchedulingPolicy";
+	difConfiguration.rmt_configuration_.pft_conf_.policy_set_.name_ = "PFTPolicySet";
+	difConfiguration.ra_configuration_.pduftg_conf_.policy_set_.name_ = "PDUFTGPolicySet";
+	difConfiguration.routing_configuration_.policy_set_.name_ = "RoutingPS";
+	difConfiguration.nsm_configuration_.policy_set_.name_ = "NSMPS";
+	difConfiguration.fa_configuration_.policy_set_.name_ = "FAPS";
+	difConfiguration.et_configuration_.policy_set_.name_ = "ETPS";
 	difInformation.set_dif_configuration(difConfiguration);
 	message.setDIFInformation(difInformation);
 
@@ -1426,16 +1425,46 @@ int testIpcmAssignToDIFRequestMessage() {
                 std::cout << "DIFInformation.DIFConfiguration.qosCubes.size original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getDIFInformation().dif_configuration_.rmt_configuration_.rmt_scheduling_policy_.name_.
+        } else if (message.getDIFInformation().dif_configuration_.rmt_configuration_.policy_set_.name_.
         		compare(recoveredMessage->getDIFInformation().dif_configuration_.rmt_configuration_.
-        				rmt_scheduling_policy_.name_) != 0) {
-        	std::cout << "DIFInformation.dif_configuration_.rmt_configuration_.rmt_scheduling_policy_.name original and recovered messages"
+        				policy_set_.name_) != 0) {
+        	std::cout << "DIFInformation.dif_configuration_.rmt_configuration_.policy_set_.name original and recovered messages"
         			<< " are different\n";
         	returnValue = -1;
-        } else if (message.getDIFInformation().dif_configuration_.pduft_generator_configuration_.pduft_generator_policy_.name_.
-        		compare(recoveredMessage->getDIFInformation().dif_configuration_.pduft_generator_configuration_.
-        				pduft_generator_policy_.name_) != 0) {
-        	std::cout << "DIFInformation.dif_configuration_.pduft_generator_configuration_.pduft_generator_policy_.name_. original and recovered messages"
+        } else if (message.getDIFInformation().dif_configuration_.rmt_configuration_.pft_conf_.policy_set_.name_.
+        		compare(recoveredMessage->getDIFInformation().dif_configuration_.rmt_configuration_.
+        				pft_conf_.policy_set_.name_) != 0) {
+        	std::cout << "DIFInformation.dif_configuration_.rmt_configuration_.pft_conf_.policy_set_.name_. original and recovered messages"
+        			<< " are different\n";
+        	returnValue = -1;
+        } else if (message.getDIFInformation().dif_configuration_.ra_configuration_.pduftg_conf_.policy_set_.name_.
+        		compare(recoveredMessage->getDIFInformation().dif_configuration_.ra_configuration_.
+        				pduftg_conf_.policy_set_.name_) != 0) {
+        	std::cout << "DIFInformation.dif_configuration_.ra_configuration_.pduftg_conf_.policy_set_.name_. original and recovered messages"
+        			<< " are different\n";
+        	returnValue = -1;
+        } else if (message.getDIFInformation().dif_configuration_.routing_configuration_.policy_set_.name_.
+        		compare(recoveredMessage->getDIFInformation().dif_configuration_.routing_configuration_.
+        				policy_set_.name_) != 0) {
+        	std::cout << "DIFInformation.dif_configuration_.routing_configuration_.policy_set_.name_. original and recovered messages"
+        			<< " are different\n";
+        	returnValue = -1;
+        } else if (message.getDIFInformation().dif_configuration_.nsm_configuration_.policy_set_.name_.
+        		compare(recoveredMessage->getDIFInformation().dif_configuration_.nsm_configuration_.
+        				policy_set_.name_) != 0) {
+        	std::cout << "DIFInformation.dif_configuration_.nsm_configuration_.policy_set_.name_. original and recovered messages"
+        			<< " are different\n";
+        	returnValue = -1;
+        } else if (message.getDIFInformation().dif_configuration_.fa_configuration_.policy_set_.name_.
+        		compare(recoveredMessage->getDIFInformation().dif_configuration_.fa_configuration_.
+        				policy_set_.name_) != 0) {
+        	std::cout << "DIFInformation.dif_configuration_.fa_configuration_.policy_set_.name_. original and recovered messages"
+        			<< " are different\n";
+        	returnValue = -1;
+        } else if (message.getDIFInformation().dif_configuration_.et_configuration_.policy_set_.name_.
+        		compare(recoveredMessage->getDIFInformation().dif_configuration_.et_configuration_.
+        				policy_set_.name_) != 0) {
+        	std::cout << "DIFInformation.dif_configuration_.et_configuration_.policy_set_.name_. original and recovered messages"
         			<< " are different\n";
         	returnValue = -1;
         }
@@ -2410,15 +2439,14 @@ int testIpcpCreateConnectionRequest() {
         dtcpConfig.set_rtx_control(true);
         dtcpConfig.set_rtx_control_config(dtcpRtxConfig);
 
-        ConnectionPolicies connectionPolicies;
-        connectionPolicies.set_dtcp_present(true);
-        connectionPolicies.set_dtcp_configuration(dtcpConfig);
-        connectionPolicies.set_seq_num_rollover_threshold(123456);
-        connectionPolicies.set_initial_a_timer(34562);
-        connectionPolicies.set_partial_delivery(true);
-        connectionPolicies.set_max_sdu_gap(34);
-        connectionPolicies.set_in_order_delivery(true);
-        connectionPolicies.set_incomplete_delivery(true);
+        DTPConfig dtpConfig;
+        dtpConfig.set_dtcp_present(true);
+        dtpConfig.set_seq_num_rollover_threshold(123456);
+        dtpConfig.set_initial_a_timer(34562);
+        dtpConfig.set_partial_delivery(true);
+        dtpConfig.set_max_sdu_gap(34);
+        dtpConfig.set_in_order_delivery(true);
+        dtpConfig.set_incomplete_delivery(true);
 
         IpcpConnectionCreateRequestMessage message;
         Connection connection;
@@ -2426,7 +2454,8 @@ int testIpcpCreateConnectionRequest() {
         connection.setSourceAddress(1);
         connection.setDestAddress(2);
         connection.setQosId(3);
-        connection.setPolicies(connectionPolicies);
+        connection.setDTPConfig(dtpConfig);
+        connection.setDTCPConfig(dtcpConfig);
         message.setConnection(connection);
 
         struct nl_msg* netlinkMessage;
@@ -2485,145 +2514,140 @@ int testIpcpCreateConnectionRequest() {
                 std::cout << "Dest CEP id on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().is_partial_delivery()!=
-                        recoveredMessage->getConnection().getPolicies().is_partial_delivery()) {
+        } else if (message.getConnection().getDTPConfig().is_partial_delivery()!=
+                        recoveredMessage->getConnection().getDTPConfig().is_partial_delivery()) {
                 std::cout << "Partial delivery on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().is_in_order_delivery()!=
-                        recoveredMessage->getConnection().getPolicies().is_in_order_delivery()) {
+        } else if (message.getConnection().getDTPConfig().is_in_order_delivery()!=
+                        recoveredMessage->getConnection().getDTPConfig().is_in_order_delivery()) {
                 std::cout << "In order delivery on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().is_incomplete_delivery()!=
-                        recoveredMessage->getConnection().getPolicies().is_incomplete_delivery()) {
+        } else if (message.getConnection().getDTPConfig().is_incomplete_delivery()!=
+                        recoveredMessage->getConnection().getDTPConfig().is_incomplete_delivery()) {
                 std::cout << "Incomplete delivery on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_max_sdu_gap()!=
-                        recoveredMessage->getConnection().getPolicies().get_max_sdu_gap()) {
+        } else if (message.getConnection().getDTPConfig().get_max_sdu_gap()!=
+                        recoveredMessage->getConnection().getDTPConfig().get_max_sdu_gap()) {
                 std::cout << "Max SDU gap on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().is_dtcp_present() !=
-                        recoveredMessage->getConnection().getPolicies().is_dtcp_present()) {
-                std::cout << "ConnPolicies.isDTCPPresent on original and recovered messages"
+        } else if (message.getConnection().getDTPConfig().is_dtcp_present() !=
+                        recoveredMessage->getConnection().getDTPConfig().is_dtcp_present()) {
+                std::cout << "dtpconfig.isDTCPPresent on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_seq_num_rollover_threshold() !=
-                        recoveredMessage->getConnection().getPolicies().get_seq_num_rollover_threshold()) {
-                std::cout << "ConnPolicies.seqnumrolloverthreshold on original and recovered messages"
+        } else if (message.getConnection().getDTPConfig().get_seq_num_rollover_threshold() !=
+                        recoveredMessage->getConnection().getDTPConfig().get_seq_num_rollover_threshold()) {
+                std::cout << "dtpconfig.seqnumrolloverthreshold on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().is_flow_control() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().is_flow_control()){
-                std::cout << "ConnPolicies.dtcpconfig.isFlowcontrol on original and recovered messages"
+        } else if (message.getConnection().getDTCPConfig().is_flow_control() !=
+                        recoveredMessage->getConnection().getDTCPConfig().is_flow_control()){
+                std::cout << "dtcpconfig.isFlowcontrol on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().is_rtx_control() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().is_rtx_control()){
-                std::cout << "ConnPolicies.dtcpconfig.isRtxcontrol on original and recovered messages"
+        } else if (message.getConnection().getDTCPConfig().is_rtx_control() !=
+                        recoveredMessage->getConnection().getDTCPConfig().is_rtx_control()){
+                std::cout << "dtcpconfig.isRtxcontrol on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_rtx_control_config().get_max_time_to_retry() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_rtx_control_config().get_max_time_to_retry() !=
+                        recoveredMessage->getConnection().getDTCPConfig().
                         get_rtx_control_config().get_max_time_to_retry()){
-                std::cout << "ConnPolicies.dtcpconfig.rtxctrlconfig.maxtimetorety on original and recovered messages"
+                std::cout << "dtcpconfig.rtxctrlconfig.maxtimetorety on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_rtx_control_config().get_initial_rtx_time() !=
-        		recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_rtx_control_config().get_initial_rtx_time() !=
+        		recoveredMessage->getConnection().getDTCPConfig().
         		get_rtx_control_config().get_initial_rtx_time()){
-        	std::cout << "ConnPolicies.dtcpconfig.rtxctrlconfig.initialrtxtime on original and recovered messages"
+        	std::cout << "dtcpconfig.rtxctrlconfig.initialrtxtime on original and recovered messages"
         			<< " are different\n";
         	returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_initial_a_timer() !=
-        		recoveredMessage->getConnection().getPolicies().get_initial_a_timer()){
-        	std::cout << "ConnPolicies.initialAtimer on original and recovered messages"
+        } else if (message.getConnection().getDTPConfig().get_initial_a_timer() !=
+        		recoveredMessage->getConnection().getDTPConfig().get_initial_a_timer()){
+        	std::cout << "dtpconfig.initialAtimer on original and recovered messages"
         			<< " are different\n";
         	returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().is_rate_based() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().is_rate_based() !=
+                        recoveredMessage->getConnection().getDTCPConfig().
                         get_flow_control_config().is_rate_based()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.ratebased on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.ratebased on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().is_window_based() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().is_window_based() !=
+                        recoveredMessage->getConnection().getDTCPConfig().
                         get_flow_control_config().is_window_based()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.windowbased on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.windowbased on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().get_rcv_buffers_threshold() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().get_rcv_buffers_threshold() !=
+                        recoveredMessage->getConnection().getDTCPConfig().
                         get_flow_control_config().get_rcv_buffers_threshold()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.rcvbuffersthres on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.rcvbuffersthres on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().get_rcv_bytes_percent_threshold() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().get_rcv_bytes_percent_threshold() !=
+                        recoveredMessage->getConnection().getDTCPConfig().
                         get_flow_control_config().get_rcv_bytes_percent_threshold()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.rcvbytespercentthres on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.rcvbytespercentthres on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().get_rcv_bytes_threshold() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().get_rcv_bytes_threshold() !=
+                        recoveredMessage->getConnection().getDTCPConfig().
                         get_flow_control_config().get_rcv_bytes_threshold()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.rcvbytesthres on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.rcvbytesthres on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().get_sent_buffers_threshold() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().get_sent_buffers_threshold() !=
+                        recoveredMessage->getConnection().getDTCPConfig().
                         get_flow_control_config().get_sent_buffers_threshold()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.sentbuffersthres on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.sentbuffersthres on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().get_sent_bytes_percent_threshold() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().get_sent_bytes_percent_threshold() !=
+                        recoveredMessage->getConnection().getDTCPConfig().
                         get_flow_control_config().get_sent_bytes_percent_threshold()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.sentbytespercentthres on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.sentbytespercentthres on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().get_sent_bytes_threshold() !=
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().get_sent_bytes_threshold() !=
+                        recoveredMessage->getConnection().getDTCPConfig().
                         get_flow_control_config().get_sent_bytes_threshold()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.sentbytesthres on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.sentbytesthres on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().get_closed_window_policy().get_name().
-                        compare(recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().get_closed_window_policy().get_name().
+                        compare(recoveredMessage->getConnection().getDTCPConfig().get_flow_control_config().
                         		get_closed_window_policy().get_name()) != 0 ){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.closedwindowpolicy.name on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.closedwindowpolicy.name on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().get_closed_window_policy().get_version().compare(
-                        recoveredMessage->getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().get_closed_window_policy().get_version().compare(
+                        recoveredMessage->getConnection().getDTCPConfig().get_flow_control_config().
                         get_closed_window_policy().get_version()) != 0){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.closedwindowpolicy.version on original and recovered messages"
+                std::cout << "dtcpconfig.flowctrlconfig.closedwindowpolicy.version on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().
-                        get_rate_based_config().get_sending_rate() != recoveredMessage->getConnection().getPolicies().
-                        get_dtcp_configuration().get_flow_control_config().get_rate_based_config().get_sending_rate()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.ratebasedconfig.sendingrate on original and recovered messages"
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().
+                        get_rate_based_config().get_sending_rate() != recoveredMessage->getConnection().getDTCPConfig().get_flow_control_config().get_rate_based_config().get_sending_rate()){
+                std::cout << "dtcpconfig.flowctrlconfig.ratebasedconfig.sendingrate on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().
-        		get_rate_based_config().get_time_period() != recoveredMessage->getConnection().getPolicies().
-                        get_dtcp_configuration().get_flow_control_config().get_rate_based_config().get_time_period()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.ratebasedconfig.timerperiod on original and recovered messages"
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().
+        		get_rate_based_config().get_time_period() != recoveredMessage->getConnection().getDTCPConfig().get_flow_control_config().get_rate_based_config().get_time_period()){
+                std::cout << "dtcpconfig.flowctrlconfig.ratebasedconfig.timerperiod on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().
-                        get_window_based_config().get_initial_credit() != recoveredMessage->getConnection().getPolicies().
-                        get_dtcp_configuration().get_flow_control_config().get_window_based_config().get_initial_credit()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.windowbasedconfig.initialcredit on original and recovered messages"
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().
+                        get_window_based_config().get_initial_credit() != recoveredMessage->getConnection().getDTCPConfig().get_flow_control_config().get_window_based_config().get_initial_credit()){
+                std::cout << "dtcpconfig.flowctrlconfig.windowbasedconfig.initialcredit on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
-        } else if (message.getConnection().getPolicies().get_dtcp_configuration().get_flow_control_config().
-        		get_window_based_config().get_maxclosed_window_queue_length() != recoveredMessage->getConnection().getPolicies().
-                        get_dtcp_configuration().get_flow_control_config().get_window_based_config().get_maxclosed_window_queue_length()){
-                std::cout << "ConnPolicies.dtcpconfig.flowctrlconfig.windowbasedconfig.maxclosedWindowQLength on original and recovered messages"
+        } else if (message.getConnection().getDTCPConfig().get_flow_control_config().get_window_based_config().get_maxclosed_window_queue_length() != recoveredMessage->getConnection().getDTCPConfig().get_flow_control_config().get_window_based_config().get_maxclosed_window_queue_length()){
+                std::cout << "dtcpconfig.flowctrlconfig.windowbasedconfig.maxclosedWindowQLength on original and recovered messages"
                                 << " are different\n";
                 returnValue = -1;
         }
@@ -3058,16 +3082,16 @@ int testRmtModifyPDUFTEntriesRequestMessage() {
         RmtModifyPDUFTEntriesRequestMessage message;
         PDUForwardingTableEntry * entry1 = new PDUForwardingTableEntry();
         entry1->setAddress(23);
-        entry1->addPortId(34);
-        entry1->addPortId(24);
-        entry1->addPortId(39);
+        entry1->portIdAltlists.push_back(34);
+        entry1->portIdAltlists.push_back(29);
+        entry1->portIdAltlists.push_back(36);
         entry1->setQosId(1);
         message.addEntry(entry1);
         PDUForwardingTableEntry * entry2 = new PDUForwardingTableEntry();
         entry2->setAddress(20);
-        entry2->addPortId(28);
-        entry2->addPortId(35);
-        entry2->addPortId(54);
+        entry2->portIdAltlists.push_back(28);
+        entry2->portIdAltlists.push_back(35);
+        entry2->portIdAltlists.push_back(43);
         entry2->setQosId(2);
         message.addEntry(entry2);
         message.setMode(1);
@@ -3112,7 +3136,7 @@ int testRmtModifyPDUFTEntriesRequestMessage() {
         for (iterator = entriesList.begin();
                         iterator != entriesList.end();
                         ++iterator) {
-                portIdsList = (*iterator)->getPortIds();
+                portIdsList = (*iterator)->portIdAltlists;
                 if (portIdsList.size() != 3) {
                         std::cout << "Size of portids in original and recovered messages"
                                         << " are different\n";
@@ -3150,15 +3174,15 @@ int testRmtDumpPDUFTResponseMessage() {
         RmtDumpPDUFTEntriesResponseMessage message;
         PDUForwardingTableEntry entry1, entry2;
         entry1.setAddress(23);
-        entry1.addPortId(34);
-        entry1.addPortId(24);
-        entry1.addPortId(39);
+        entry1.portIdAltlists.push_back(34);
+        entry1.portIdAltlists.push_back(29);
+        entry1.portIdAltlists.push_back(36);
         entry1.setQosId(1);
         message.addEntry(entry1);
         entry2.setAddress(20);
-        entry2.addPortId(28);
-        entry2.addPortId(35);
-        entry2.addPortId(54);
+        entry2.portIdAltlists.push_back(28);
+        entry2.portIdAltlists.push_back(35);
+        entry2.portIdAltlists.push_back(54);
         entry2.setQosId(2);
         message.addEntry(entry2);
         message.setResult(3);
@@ -3203,7 +3227,7 @@ int testRmtDumpPDUFTResponseMessage() {
         for (iterator = entriesList.begin();
                         iterator != entriesList.end();
                         ++iterator) {
-                portIdsList = iterator->getPortIds();
+                portIdsList = iterator->portIdAltlists;
                 if (portIdsList.size() != 3) {
                         std::cout << "Size of portids in original and recovered messages"
                                         << " are different\n";
@@ -3222,6 +3246,83 @@ int testRmtDumpPDUFTResponseMessage() {
 
         if (returnValue == 0) {
                 std::cout << "RmtDumpPDUFTEntriesResponseMessage test ok\n";
+        }
+        nlmsg_free(netlinkMessage);
+        delete recoveredMessage;
+
+        return returnValue;
+}
+
+int testEnableEncryptionRequestMessage() {
+        std::cout << "TESTING ENABLE ENCRYPTION REQUEST MESSAGE\n";
+        int returnValue = 0;
+
+        IPCPEnableEncryptionRequestMessage message;
+        message.profile.enable_decryption = true;
+        message.profile.enable_encryption = true;
+        message.profile.port_id = 232;
+        message.profile.encrypt_key.length = 16;
+        message.profile.encrypt_key.data = new unsigned char[16];
+        message.profile.encrypt_key.data[0] = 0x01;
+        message.profile.encrypt_key.data[1] = 0x02;
+        message.profile.encrypt_key.data[2] = 0x03;
+        message.profile.encrypt_key.data[3] = 0x04;
+        message.profile.encrypt_key.data[4] = 0x05;
+        message.profile.encrypt_key.data[5] = 0x06;
+        message.profile.encrypt_key.data[6] = 0x07;
+        message.profile.encrypt_key.data[7] = 0x08;
+        message.profile.encrypt_key.data[8] = 0x09;
+        message.profile.encrypt_key.data[9] = 0x10;
+        message.profile.encrypt_key.data[10] = 0x11;
+        message.profile.encrypt_key.data[11] = 0x12;
+        message.profile.encrypt_key.data[12] = 0x13;
+        message.profile.encrypt_key.data[13] = 0x14;
+        message.profile.encrypt_key.data[14] = 0x15;
+        message.profile.encrypt_key.data[15] = 0x16;
+
+        struct nl_msg* netlinkMessage = nlmsg_alloc();
+        if (!netlinkMessage) {
+                std::cout << "Error allocating Netlink message\n";
+        }
+        genlmsg_put(netlinkMessage, NL_AUTO_PORT, message.getSequenceNumber(), 21,
+                        sizeof(struct rinaHeader), 0, message.getOperationCode(), 0);
+
+        int result = putBaseNetlinkMessage(netlinkMessage, &message);
+        if (result < 0) {
+                std::cout << "Error constructing IPCPEnableEncryptionRequestMessage "
+                                << "message \n";
+                nlmsg_free(netlinkMessage);
+                return result;
+        }
+
+        nlmsghdr* netlinkMessageHeader = nlmsg_hdr(netlinkMessage);
+        IPCPEnableEncryptionRequestMessage * recoveredMessage =
+                        dynamic_cast<IPCPEnableEncryptionRequestMessage *>(
+                                        parseBaseNetlinkMessage(netlinkMessageHeader));
+
+        if (recoveredMessage == 0) {
+                std::cout << "Error parsing IPCPEnableEncryptionRequestMessage message "
+                                << "\n";
+                returnValue = -1;
+        } else if (message.profile.enable_decryption != recoveredMessage->profile.enable_decryption) {
+        	std::cout << "Error with enable decryption";
+        	returnValue = -1;
+        } else if (message.profile.enable_encryption != recoveredMessage->profile.enable_encryption) {
+        	std::cout << "Error with enable_encryption";
+        	returnValue = -1;
+        } else if (message.profile.port_id != recoveredMessage->profile.port_id) {
+        	std::cout << "Error with port_id";
+        	returnValue = -1;
+        } else if (message.profile.encrypt_key.length != recoveredMessage->profile.encrypt_key.length) {
+        	std::cout << "Error with encrypt key length";
+        	returnValue = -1;
+        } else if (message.profile.encrypt_key.data[10] != recoveredMessage->profile.encrypt_key.data[10]) {
+        	std::cout << "Error with encrypt key data";
+        	returnValue = -1;
+        }
+
+        if (returnValue == 0) {
+                std::cout << "IPCPEnableEncryptionRequestMessage test ok\n";
         }
         nlmsg_free(netlinkMessage);
         delete recoveredMessage;
@@ -3447,6 +3548,11 @@ int main() {
 	result = testRmtDumpPDUFTResponseMessage();
 	if (result < 0) {
 	        return result;
+	}
+
+	result = testEnableEncryptionRequestMessage();
+	if (result < 0) {
+		return result;
 	}
 
 	return 0;

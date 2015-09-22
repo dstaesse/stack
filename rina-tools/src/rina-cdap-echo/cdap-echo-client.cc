@@ -24,14 +24,12 @@
 #include <iostream>
 #include <sstream>
 #include <cassert>
-#include <random>
-#include <thread>
 #include <unistd.h>
-#include <chrono>
 
 #define RINA_PREFIX     "cdap-echo-client"
 #include <librina/logs.h>
 #include <librina/cdap_v2.h>
+#include <librina/security-manager.h>
 
 #include "cdap-echo-client.h"
 
@@ -123,6 +121,7 @@ void Client::createFlow()
         if (flow_.portId < 0) {
                 LOG_ERR("Failed to allocate a flow");
         } else {
+		ipcManager->setFlowOptsBlocking(flow_.portId, false);
                 LOG_DBG("[DEBUG] Port id = %d", flow_.portId);
         }
 }
@@ -130,27 +129,42 @@ void Client::createFlow()
 void Client::cacep()
 {
         char buffer[max_buffer_size];
-        cdap::CDAPProviderFactory::init(2000);
-        cdap_prov_ = cdap::CDAPProviderFactory::create(false, this);
+        cdap::init(this, false);
+        cdap_prov_ = cdap::getProvider();
         cdap_rib::vers_info_t ver;
         ver.version_ = 1;
-        cdap_rib::src_info_t src;
+        cdap_rib::ep_info_t src;
+        int bytes_read = 0;
+
         src.ap_name_ = flow_.localAppName.processName;
         src.ae_name_ = flow_.localAppName.entityName;
         src.ap_inst_ = flow_.localAppName.processInstance;
         src.ae_inst_ = flow_.localAppName.entityInstance;
-        cdap_rib::dest_info_t dest;
+        cdap_rib::ep_info_t dest;
         dest.ap_name_ = flow_.remoteAppName.processName;
         dest.ae_name_ = flow_.remoteAppName.entityName;
         dest.ap_inst_ = flow_.remoteAppName.processInstance;
         dest.ae_inst_ = flow_.remoteAppName.entityInstance;
-        cdap_rib::auth_info auth;
-        auth.auth_mech_ = auth.AUTH_NONE;
+        cdap_rib::auth_policy auth;
+        auth.name = rina::IAuthPolicySet::AUTH_NONE;
 
         std::cout << "open conection request CDAP message sent" << std::endl;
-        con_ = cdap_prov_->open_connection(ver, src, dest, auth,
+        con_ = cdap_prov_->remote_open_connection(ver, src, dest, auth,
                                            flow_.portId);
-        int bytes_read = ipcManager->readSDU(flow_.portId, buffer, max_buffer_size);
+        while (true) {
+        	try {
+        		bytes_read = ipcManager->readSDU(flow_.portId, buffer, max_buffer_size);
+        		if (bytes_read == 0) {
+        			sleep_wrapper.sleepForMili(50);
+        		} else {
+        			break;
+        		}
+        	} catch (Exception &e){
+        		LOG_ERR("Exception while reading: %s", e.what());
+        		break;
+        	}
+        }
+
         cdap_rib::SerializedObject message;
         message.message_ = buffer;
         message.size_ = bytes_read;
@@ -160,8 +174,6 @@ void Client::cacep()
 void Client::open_connection_result(const cdap_rib::con_handle_t &con,
                                     const cdap_rib::result_info &res)
 {
-        (void) con;
-        (void) res;
         std::cout << "open conection response CDAP message received"
                   << std::endl;
 }
@@ -169,17 +181,12 @@ void Client::remote_read_result(const rina::cdap_rib::con_handle_t &con,
                                 const rina::cdap_rib::obj_info_t &obj,
                                 const rina::cdap_rib::res_info_t &res)
 {
-        (void) con;
-        (void) res;
-        (void) obj;
         std::cout << "read response CDAP message received" << std::endl;
 }
 
 void Client::close_connection_result(const cdap_rib::con_handle_t &con,
                                      const cdap_rib::result_info &res)
 {
-        (void) con;
-        (void) res;
         std::cout << "release response CDAP message received" << std::endl;
         destroyFlow();
 }
@@ -204,6 +211,7 @@ void Client::sendReadRMessage()
                 } else {
                         // READ
                         cdap_rib::obj_info_t obj;
+                        int bytes_read = 0;
                         obj.name_ = "test name";
                         obj.class_ = "test class";
                         obj.inst_ = 1;
@@ -215,8 +223,21 @@ void Client::sendReadRMessage()
                         cdap_prov_->remote_read(con_.port_, obj, flags, filt);
                         std::cout << "read request CDAP message sent"
                                   << std::endl;
-                        int bytes_read = ipcManager->readSDU(flow_.portId, buffer,
-                                                        max_buffer_size);
+
+                        while(true) {
+                        	try {
+                        		bytes_read = ipcManager->readSDU(flow_.portId, buffer,
+                        				max_buffer_size);
+                        		if (bytes_read == 0) {
+                        			sleep_wrapper.sleepForMili(50);
+                        		} else {
+                        			break;
+                        		}
+                        	} catch (Exception & e) {
+                        		LOG_ERR("Exception while reading: %s", e.what());
+                        		break;
+                        	}
+                        }
                         cdap_rib::SerializedObject message;
                         message.message_ = buffer;
                         message.size_ = bytes_read;
@@ -232,12 +253,27 @@ void Client::release()
 {
         char buffer[max_buffer_size];
         std::cout << "release request CDAP message sent" << std::endl;
-        cdap_prov_->close_connection(con_.port_);
-        int bytes_read = ipcManager->readSDU(flow_.portId, buffer, max_buffer_size);
+        int bytes_read = 0;
+        cdap_prov_->remote_close_connection(con_.port_);
+        std::cout << "Waiting for release response" << std::endl;
+
+        while(true) {
+        	try {
+        		bytes_read = ipcManager->readSDU(flow_.portId, buffer, max_buffer_size);
+        		if (bytes_read == 0) {
+        			sleep_wrapper.sleepForMili(50);
+        		} else {
+        			break;
+        		}
+        	}catch (Exception &e) {
+        		LOG_ERR("Exception while reading: %s", e.what());
+        		break;
+        	}
+        }
+
         cdap_rib::SerializedObject message;
         message.message_ = buffer;
         message.size_ = bytes_read;
-        std::cout << "Waiting for release response" << std::endl;
         cdap_prov_->process_message(message, flow_.portId);
         std::cout << "Release completed" << std::endl;
 }
@@ -247,7 +283,7 @@ void Client::destroyFlow()
         DeallocateFlowResponseEvent *resp = 0;
         unsigned int seqnum;
         IPCEvent* event;
-        cdap::CDAPProviderFactory::destroy(flow_.portId);
+        cdap::destroy(flow_.portId);
         seqnum = ipcManager->requestFlowDeallocation(flow_.portId);
 
         for (;;) {
@@ -262,5 +298,4 @@ void Client::destroyFlow()
         assert(resp);
 
         ipcManager->flowDeallocationResult(flow_.portId, resp->result == 0);
-        cdap::CDAPProviderFactory::finit();
 }

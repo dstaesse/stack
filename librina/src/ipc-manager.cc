@@ -8,12 +8,12 @@
 // modify it under the terms of the GNU Lesser General Public
 // License as published by the Free Software Foundation; either
 // version 2.1 of the License, or (at your option) any later version.
-// 
+//
 // This library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 // Lesser General Public License for more details.
-// 
+//
 // You should have received a copy of the GNU Lesser General Public
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
@@ -135,8 +135,6 @@ void IPCProcessProxy::assignToDIF(const DIFInformation& difInformation,
 {
 #if STUB_API
         //Do nothing
-		(void) difInformation;
-        (void) opaque;
 #else
         IpcmAssignToDIFRequestMessage message;
         message.setDIFInformation(difInformation);
@@ -162,8 +160,6 @@ IPCProcessProxy::updateDIFConfiguration(const DIFConfiguration& difConfiguration
 {
 #if STUB_API
         //Do nothing
-		(void) difConfiguration;
-        (void) opaque;
 #else
         IpcmUpdateDIFConfigurationRequestMessage message;
         message.setDIFConfiguration(difConfiguration);
@@ -187,8 +183,6 @@ void IPCProcessProxy::notifyRegistrationToSupportingDIF(
 {
 #if STUB_API
 	//Do nothing
-        (void)ipcProcessName;
-        (void)difName;
 #else
 	IpcmDIFRegistrationNotification message;
 	message.setIpcProcessName(ipcProcessName);
@@ -212,8 +206,6 @@ void IPCProcessProxy::notifyUnregistrationFromSupportingDIF(
 {
 #if STUB_API
 	//Do nothing
-        (void)ipcProcessName;
-        (void)difName;
 #else
 	IpcmDIFRegistrationNotification message;
 	message.setIpcProcessName(ipcProcessName);
@@ -239,10 +231,6 @@ void IPCProcessProxy::enroll(
 {
 #if STUB_API
         //Do nothing
-        (void)difName;
-        (void)supportingDifName;
-        (void)neighborName;
-        (void)opaque;
 #else
         IpcmEnrollToDIFRequestMessage message;
         message.setDifName(difName);
@@ -278,10 +266,6 @@ void IPCProcessProxy::registerApplication(
 {
 #if STUB_API
 	//Do nothing
-	(void)applicationName;
-    (void)regIpcProcessId;
-    (void)dif_name;
-    (void)opaque;
 #else
 	IpcmRegisterApplicationRequestMessage message;
 	message.setApplicationName(applicationName);
@@ -309,9 +293,6 @@ void IPCProcessProxy::unregisterApplication(
 
 #if STUB_API
 	//Do nothing
-	(void) applicationName;
-	(void) dif_name;
-    (void) opaque;
 #else
         IpcmUnregisterApplicationRequestMessage message;
         message.setApplicationName(applicationName);
@@ -335,8 +316,6 @@ void IPCProcessProxy::allocateFlow(const FlowRequestEvent& flowRequest,
 {
 #if STUB_API
 	//Do nothing
-	(void) flowRequest;
-	(void) opaque;
 #else
 	IpcmAllocateFlowRequestMessage message;
 	message.setSourceAppName(flowRequest.localApplicationName);
@@ -360,14 +339,12 @@ void IPCProcessProxy::allocateFlow(const FlowRequestEvent& flowRequest,
 }
 
 void IPCProcessProxy::allocateFlowResponse(const FlowRequestEvent& flowRequest,
-		int result, bool notifySource, int flowAcceptorIpcProcessId)
+					   int result,
+					   bool notifySource,
+					   int flowAcceptorIpcProcessId)
 {
 #if STUB_API
 	//Do nothing
-		(void)flowRequest;
-        (void)notifySource;
-        (void)flowAcceptorIpcProcessId;
-        (void)result;
 #else
 	IpcmAllocateFlowResponseMessage responseMessage;
 	responseMessage.setResult(result);
@@ -390,8 +367,6 @@ void IPCProcessProxy::deallocateFlow(int flowPortId, unsigned int opaque)
 {
 #if STUB_API
 	//Do nothing
-	(void) flowPortId;
-    (void) opaque;
 #else
 	IpcmDeallocateFlowRequestMessage message;
 	message.setPortId(flowPortId);
@@ -414,12 +389,6 @@ void IPCProcessProxy::queryRIB(const std::string& objectClass,
 		unsigned int opaque)
 {
 #if STUB_API
-        (void)objectClass;
-        (void)objectName;
-        (void)objectInstance;
-        (void)scope;
-        (void)filter;
-        (void)opaque;
 #else
 	IpcmDIFQueryRIBRequestMessage message;
 	message.setObjectClass(objectClass);
@@ -445,10 +414,6 @@ void IPCProcessProxy::setPolicySetParam(const std::string& path,
                         unsigned int opaque)
 {
 #if STUB_API
-        (void)path;
-        (void)name;
-        (void)value;
-        (void)opaque;
 #else
 	IpcmSetPolicySetParamRequestMessage message;
         message.path = path;
@@ -472,9 +437,6 @@ void IPCProcessProxy::selectPolicySet(const std::string& path,
                                  unsigned int opaque)
 {
 #if STUB_API
-        (void)path;
-        (void)name;
-        (void)opaque;
 #else
 	IpcmSelectPolicySetRequestMessage message;
         message.path = path;
@@ -496,9 +458,6 @@ void IPCProcessProxy::pluginLoad(const std::string& name, bool load,
 		unsigned int opaque)
 {
 #if STUB_API
-        (void)name;
-        (void)load;
-        (void)opaque;
 #else
 	IpcmPluginLoadRequestMessage message;
         message.name = name;
@@ -520,8 +479,6 @@ void IPCProcessProxy::forwardCDAPMessage(const SerializedObject& sermsg,
 					 unsigned int opaque)
 {
 #if STUB_API
-        (void)sermsg;
-        (void)opaque;
 #else
 	IpcmFwdCDAPMsgMessage message;
         message.sermsg = sermsg;
@@ -624,7 +581,6 @@ IPCProcessProxy * IPCProcessFactory::create(
 				(char*) 0
 			};
 
-			LOG_DBG("argv[0]: %s", argv[0]);
 			execve(argv[0], &argv[0], envp);
 
 			LOG_ERR("Problems loading IPC Process program, finalizing OS Process with error %s", strerror(errno));
@@ -688,9 +644,6 @@ void ApplicationManager::applicationRegistered(
 
 #if STUB_API
 	//Do nothing
-        (void)event;
-        (void)difName;
-        (void)result;
 #else
 	AppRegisterApplicationResponseMessage responseMessage;
 	responseMessage.setApplicationName(event.
@@ -715,8 +668,6 @@ void ApplicationManager::applicationUnregistered(
 
 #if STUB_API
 	//Do nothing
-        (void)event;
-        (void)result;
 #else
 	AppUnregisterApplicationResponseMessage responseMessage;
 	responseMessage.setApplicationName(event.applicationName);
@@ -737,7 +688,6 @@ void ApplicationManager::flowAllocated(const FlowRequestEvent& flowRequestEvent)
 
 #if STUB_API
 	//Do nothing
-        (void)flowRequestEvent;
 #else
 	AppAllocateFlowRequestResultMessage responseMessage;
 	responseMessage.setPortId(flowRequestEvent.portId);
@@ -762,12 +712,6 @@ void ApplicationManager::flowRequestArrived(
 			unsigned int opaque)
 {
 #if STUB_API
-        (void)localAppName;
-        (void)remoteAppName;
-        (void)flowSpec;
-        (void)difName;
-        (void)portId;
-        (void)opaque;
 #else
 	AppAllocateFlowRequestArrivedMessage message;
 	message.setSourceAppName(remoteAppName);
@@ -793,8 +737,6 @@ void ApplicationManager::flowDeallocated(
 
 #if STUB_API
 	//Do nothing
-        (void)event;
-        (void)result;
 #else
 	AppDeallocateFlowResponseMessage responseMessage;
 	responseMessage.setApplicationName(event.applicationName);
@@ -817,9 +759,6 @@ void ApplicationManager::flowDeallocatedRemotely(
 	LOG_DBG("ApplicationManager::flowDeallocatedRemotely called");
 #if STUB_API
 	//Do nothing
-        (void)portId;
-        (void)code;
-        (void)appName;
 #else
 	AppFlowDeallocatedNotificationMessage message;
 	message.setPortId(portId);
@@ -840,9 +779,6 @@ void ApplicationManager::getDIFPropertiesResponse(
 {
 #if STUB_API
 	//Do nothing
-        (void)event;
-        (void)result;
-        (void)difProperties;
 #else
 	AppGetDIFPropertiesResponseMessage responseMessage;
 	responseMessage.setResult(result);

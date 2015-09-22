@@ -21,7 +21,7 @@ AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
 AC_CANONICAL_TARGET
 
-AM_INIT_AUTOMAKE([1.11.1 tar-pax foreign -Wall])
+AM_INIT_AUTOMAKE([1.11.1 tar-pax foreign -Wall subdir-objects])
 #AM_INIT_AUTOMAKE([1.11.1 tar-pax foreign std-options -Wall])
 
 AC_PROG_SED
@@ -29,10 +29,22 @@ AC_PROG_GREP
 AC_PROG_MKDIR_P
 AC_PROG_LN_S
 
-AC_PATH_PROG([FMT],  [fmt],  [/bin/false])
-AC_PATH_PROG([SORT], [sort], [/bin/false])
-AC_PATH_PROG([UNIQ], [uniq], [/bin/false])
-AC_PATH_PROG([GIT],  [git],  [/bin/false])
+AC_PATH_PROG([FMT],  [fmt],  [no])
+AS_IF([test "x$FMT" = "xno"],[
+	AC_MSG_ERROR([Your system lacks of fmt support])
+])
+AC_PATH_PROG([SORT], [sort], [no])
+AS_IF([test "x$SORT" = "xno"],[
+	AC_MSG_ERROR([Your system lacks of sort support])
+])
+AC_PATH_PROG([UNIQ], [uniq], [no])
+AS_IF([test "x$UNIQ" = "xno"],[
+	AC_MSG_ERROR([Your system lacks of uniq support])
+])
+AC_PATH_PROG([GIT],  [git],  [no])
+AS_IF([test "x$GIT" = "xno"],[
+	AC_MSG_ERROR([Your system lacks of git support])
+])
 
 AC_PROG_CPP
 AC_PROG_CC
@@ -50,25 +62,22 @@ CPPFLAGS_EXTRA=""
 CXXFLAGS_EXTRA=""
 
 AX_CHECK_COMPILE_FLAG([ -Wall ], [
-    CPPFLAGS_EXTRA="$CPPFLAGS_EXTRA -Wall"
+    CXXFLAGS_EXTRA="$CXXFLAGS_EXTRA -Wall"
 ])
 AX_CHECK_COMPILE_FLAG([ -Wformat ], [
-    CPPFLAGS_EXTRA="$CPPFLAGS_EXTRA -Wformat"
+    CXXFLAGS_EXTRA="$CXXFLAGS_EXTRA -Wformat"
 ])
 AX_CHECK_COMPILE_FLAG([ -Wnon-virtual-dtor ], [
-    CPPFLAGS_EXTRA="$CPPFLAGS_EXTRA -Wnon-virtual-dtor"
+    CXXFLAGS_EXTRA="$CXXFLAGS_EXTRA -Wnon-virtual-dtor"
 ])
 AX_CHECK_COMPILE_FLAG([ -Woverloaded-virtual ], [
-    CPPFLAGS_EXTRA="$CPPFLAGS_EXTRA -Woverloaded-virtual"
-])
-AX_CHECK_COMPILE_FLAG([ -Wextra ], [
-    CPPFLAGS_EXTRA="$CPPFLAGS_EXTRA -Wextra"
+    CXXFLAGS_EXTRA="$CXXFLAGS_EXTRA -Woverloaded-virtual"
 ])
 AX_CHECK_COMPILE_FLAG([ -Werror ], [
-    CPPFLAGS_EXTRA="$CPPFLAGS_EXTRA -Werror"
+    CXXFLAGS_EXTRA="$CXXFLAGS_EXTRA -Werror"
 ])
 AX_CHECK_COMPILE_FLAG([ -Wfatal-errors ], [
-    CPPFLAGS_EXTRA="$CPPFLAGS_EXTRA -Wfatal-errors"
+    CXXFLAGS_EXTRA="$CXXFLAGS_EXTRA -Wfatal-errors"
 ])
 
 want_debug=no
@@ -102,6 +111,9 @@ PKG_PROG_PKG_CONFIG([0.26])
 LIBNL_MIN_VERSION=3.2.14
 AC_SUBST(LIBNL_MIN_VERSION, $LIBNL_MIN_VERSION)
 
+OPENSSL_MIN_VERSION=1.0.1
+AC_SUBST(OPENSSL_MIN_VERSION, $OPENSSL_MIN_VERSION)
+
 PKG_CHECK_MODULES(LIBNL3, [libnl-3.0 >= $LIBNL_MIN_VERSION],, [
     AC_MSG_ERROR([Your system lacks of libnl-3 support (>= $LIBNL_MIN_VERSION)])
 ])
@@ -114,8 +126,15 @@ AC_CHECK_LIB([pthread],[pthread_create],,[
     AC_MSG_ERROR([Your system lacks of libpthread support])
 ])
 
+PKG_CHECK_MODULES(OPENSSL, [openssl >= $OPENSSL_MIN_VERSION],, [
+    AC_MSG_ERROR([Your system lacks of openssl support (>= $OPENSSL_MIN_VERSION)])
+])
+
 build_bindings=no
+build_bindings_swig=no
 build_bindings_java=no
+build_bindings_c=yes
+
 AX_SELECTOR_ENABLE([java-bindings],[
     build_bindings_java=yes
 ],[
@@ -123,9 +142,19 @@ AX_SELECTOR_ENABLE([java-bindings],[
 ])
 AS_IF([test "$build_bindings_java" = "yes"],[
     build_bindings=yes
+    build_bindings_swig=yes
 ])
+AX_SELECTOR_DISABLE([c-bindings],[
+    build_bindings_c=yes
+],[
+    build_bindings_c=no
+])
+AS_IF([test "$build_bindings_c" = "yes"],[
+    build_bindings=yes
+])
+AM_CONDITIONAL(BUILD_BINDINGS_C, [test $build_bindings_c = yes])
 
-AS_IF([test "$build_bindings" = "yes"],[
+AS_IF([test "$build_bindings_swig" = "yes"],[
     AX_PKG_SWIG([2.0],[
         #
         # SWIG version > 2.0.4 && < 2.0.8 have a bug preventing correct
@@ -196,7 +225,7 @@ AS_IF([test -n "$sysheaders"],[
     AS_IF([test x"$GXX" != x"yes"],[
         AC_MSG_ERROR([Your system lacks of GNU C++ compiler])
     ])
-    
+
     CXX_SYSINCLUDES=
 
     for cxxheaders in `$CXX -v -S -x c++ /dev/null -o /dev/null 2>&1 \
@@ -233,11 +262,16 @@ AX_HAVE_SYSCALL([management_sdu_read],[],[
     AC_MSG_ERROR([Your system lacks of a necessary syscall])])
 AX_HAVE_SYSCALL([management_sdu_write],[],[
     AC_MSG_ERROR([Your system lacks of a necessary syscall])])
+AX_HAVE_SYSCALL([flow_io_ctl],[],[
+    AC_MSG_ERROR([Your system lacks of a necessary syscall])])
 
 CFLAGS="$oldcflags"
 AC_LANG_POP([C])
 
-AC_PATH_PROG([PROTOC], [protoc], [/bin/false])
+AC_PATH_PROG([PROTOC], [protoc], [no])
+AS_IF([test "x$PROTOC" = "xno"],[
+	AC_MSG_ERROR([Your system lacks of protoc support])
+])
 
 LIBPROTOBUF_MIN_VERSION=2.5.0
 AC_SUBST(LIBPROTOBUF_MIN_VERSION, $LIBPROTOBUF_MIN_VERSION)
@@ -268,6 +302,10 @@ AC_CONFIG_FILES([
 
     wrap/Makefile
     wrap/java/Makefile
+    wrap/c/Makefile
+    wrap/c/src/Makefile
+    wrap/c/include/Makefile
+    wrap/c/include/librina-c/Makefile
 
     test/Makefile
 

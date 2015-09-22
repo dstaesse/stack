@@ -301,8 +301,9 @@ public:
 	 * @throws AllocateFlowException if something goes wrong
 	 */
 	void allocateFlowResponse(const rina::FlowRequestEvent& flowRequest,
-			int result, bool notifySource,
-			int flowAcceptorIpcProcessId);
+				  int result,
+				  bool notifySource,
+				  int flowAcceptorIpcProcessId);
 
 	/**
 	 * Tell the IPC Process to deallocate a flow
