@@ -51,6 +51,7 @@
 #include "rinarp/rinarp.h"
 #include "rinarp/arp826-utils.h"
 #include "shim-eth.h"
+#include "rds/robjects.h"
 
 #define DEFAULT_QDISC_MAX_SIZE 50
 #define DEFAULT_QDISC_ENABLE_SIZE 10
@@ -144,6 +145,45 @@ struct interface_data_mapping {
         struct net_device *         dev;
         struct ipcp_instance_data * data;
 };
+
+static ssize_t eth_vlan_ipcp_attr_show(struct robject *        robj,
+                         	       struct robj_attribute * attr,
+                                       char *                  buf)
+{
+	struct ipcp_instance * instance;
+
+	instance = container_of(robj, struct ipcp_instance, robj);
+	if (!instance || !instance->data)
+		return 0;
+
+	if (strcmp(robject_attr_name(attr), "name") == 0)
+		return sprintf(buf, "%s\n",
+			name_tostring(instance->data->name));
+	if (strcmp(robject_attr_name(attr), "dif") == 0)
+		return sprintf(buf, "%s\n",
+			name_tostring(instance->data->dif_name));
+	if (strcmp(robject_attr_name(attr), "address") == 0)
+                return sprintf(buf,
+		               "%02X:%02X:%02X:%02X:%02X:%02X\n",
+                               instance->data->dev->dev_addr[5],
+                               instance->data->dev->dev_addr[4],
+                               instance->data->dev->dev_addr[3],
+                               instance->data->dev->dev_addr[2],
+                               instance->data->dev->dev_addr[1],
+                               instance->data->dev->dev_addr[0]);
+	if (strcmp(robject_attr_name(attr), "type") == 0)
+		return sprintf(buf, "shim-eth-vlan\n");
+	if (strcmp(robject_attr_name(attr), "vlan_id") == 0)
+		return sprintf(buf, "%u\n", instance->data->info->vlan_id);
+	if (strcmp(robject_attr_name(attr), "iface") == 0)
+		return sprintf(buf, "%s\n",
+			instance->data->info->interface_name);
+
+	return 0;
+}
+RINA_SYSFS_OPS(eth_vlan_ipcp);
+RINA_ATTRS(eth_vlan_ipcp, name, type, dif, address, vlan_id, iface);
+RINA_KTYPE(eth_vlan_ipcp);
 
 static DEFINE_SPINLOCK(data_instances_lock);
 static struct list_head data_instances_list;
@@ -938,8 +978,6 @@ static int eth_vlan_sdu_write(struct ipcp_instance_data * data,
                 return -1;
         }
 
-        sdu_destroy(sdu);
-
         skb->dev      = data->dev;
         skb->protocol = htons(ETH_P_RINA);
 
@@ -948,12 +986,14 @@ static int eth_vlan_sdu_write(struct ipcp_instance_data * data,
         if (retval < 0) {
                 LOG_ERR("Problems in dev_hard_header (%d)", retval);
                 kfree_skb(skb);
+                sdu_destroy(sdu);
                 return -1;
         }
 
         retval = dev_queue_xmit(skb);
         if (retval == -ENETDOWN) {
         	LOG_ERR("dev_q_xmit returned device down");
+        	sdu_destroy(sdu);
         	return -1;
         }
         if (retval != NET_XMIT_SUCCESS) {
@@ -961,6 +1001,7 @@ static int eth_vlan_sdu_write(struct ipcp_instance_data * data,
         	return -EAGAIN;
         }
 
+        sdu_destroy(sdu);
         LOG_DBG("Packet sent");
 
         return 0;
@@ -1725,7 +1766,7 @@ static struct ipcp_instance_ops eth_vlan_instance_ops = {
 
         .set_policy_set_param      = NULL,
         .select_policy_set         = NULL,
-        .enable_encryption	   = NULL,
+        .update_crypto_state	   = NULL,
         .dif_name		   = eth_vlan_dif_name
 };
 
@@ -1862,6 +1903,16 @@ static struct ipcp_instance * eth_vlan_create(struct ipcp_factory_data * data,
 
         /* fill it properly */
         inst->ops  = &eth_vlan_instance_ops;
+
+	if (robject_rset_init_and_add(&inst->robj,
+				      &eth_vlan_ipcp_rtype,
+				      kipcm_rset(default_kipcm),
+				      "%u",
+				      id)) {
+		rkfree(inst);
+		return NULL;
+	}
+
         inst->data = rkzalloc(sizeof(struct ipcp_instance_data), GFP_KERNEL);
         if (!inst->data) {
                 inst_cleanup(inst);
@@ -2001,6 +2052,8 @@ static int eth_vlan_destroy(struct ipcp_factory_data * data,
                                 spin_unlock(&data_instances_lock);
                                 rkfree(mapping);
                         }
+
+                        robject_del(&instance->robj);
 
                         /*
                          * Might cause problems:

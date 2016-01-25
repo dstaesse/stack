@@ -4,19 +4,20 @@
  *    Bernat Gaston         <bernat.gaston@i2cat.net>
  *    Marc Sune             <marc.sune (at) bisdn.de>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA  02110-1301  USA
  */
 
 #include "ribf.h"
@@ -46,7 +47,6 @@ namespace mad {
 //static (unique) ribd proxy ref
 rina::rib::RIBDaemonProxy* RIBFactory::ribd = NULL;
 RIBConHandler empty_conn_callbacks;
-RIBRespHandler empty_rib_callbacks;
 
 /*
  * RIBFactory
@@ -62,7 +62,7 @@ RIBFactory::RIBFactory(RIBAEassoc ver_assoc){
 
 
 	//First initialize the RIB library
-	rina::rib::init(&empty_conn_callbacks, &empty_rib_callbacks, params);
+	rina::rib::init(&empty_conn_callbacks, params);
 
 	for (it = ver_assoc.begin();
 			it != ver_assoc.end(); ++it) {
@@ -104,6 +104,8 @@ RIBFactory::RIBFactory(RIBAEassoc ver_assoc){
 
 RIBFactory::~RIBFactory() throw (){
 	// FIXME destroy con handlers and resp handlers
+	LOG_INFO("RIBFactory destructor called");
+	rina::rib::fini();
 }
 
 /*
@@ -153,9 +155,9 @@ void RIBFactory::destroyIPCPevent(int ipcp_id){
 	}
 }
 
-void RIBConHandler::connect(int message_id,
-				const rina::cdap_rib::con_handle_t &con) {
-	(void) message_id;
+void RIBConHandler::connect(const rina::cdap::CDAPMessage& message,
+			    const rina::cdap_rib::con_handle_t &con) {
+	(void) message;
 	(void) con;
 }
 
@@ -176,62 +178,12 @@ void RIBConHandler::releaseResult(
 	(void) res;
 	(void) con;
 }
-
-//RIB ops response
-void RIBRespHandler::remoteCreateResult(
-			const rina::cdap_rib::con_handle_t &con,
-			const rina::cdap_rib::obj_info_t &obj,
-			const rina::cdap_rib::res_info_t &res){
-	(void) res;
-	(void) con;
-	(void) obj;
-}
-void RIBRespHandler::remoteDeleteResult(
-			const rina::cdap_rib::con_handle_t &con,
-			const rina::cdap_rib::res_info_t &res){
-	(void) res;
+void RIBConHandler::process_authentication_message(const rina::cdap::CDAPMessage& message,
+				    	    	   const rina::cdap_rib::con_handle_t &con)
+{
+	(void) message;
 	(void) con;
 }
-
-void RIBRespHandler::remoteReadResult(
-			const rina::cdap_rib::con_handle_t &con,
-			const rina::cdap_rib::obj_info_t &obj,
-			const rina::cdap_rib::res_info_t &res){
-	(void) res;
-	(void) con;
-	(void) obj;
-}
-void RIBRespHandler::remoteCancelReadResult(
-			const rina::cdap_rib::con_handle_t &con,
-			const rina::cdap_rib::res_info_t &res){
-	(void) res;
-	(void) con;
-}
-void RIBRespHandler::remoteWriteResult(
-			const rina::cdap_rib::con_handle_t &con,
-			const rina::cdap_rib::obj_info_t &obj,
-			const rina::cdap_rib::res_info_t &res){
-	(void) res;
-	(void) con;
-	(void) obj;
-}
-void RIBRespHandler::remoteStartResult(
-			const rina::cdap_rib::con_handle_t &con,
-			const rina::cdap_rib::obj_info_t &obj,
-			const rina::cdap_rib::res_info_t &res){
-	(void) res;
-	(void) con;
-	(void) obj;
-}
-void RIBRespHandler::remoteStopResult(
-			const rina::cdap_rib::con_handle_t &con,
-			const rina::cdap_rib::obj_info_t &obj,
-			const rina::cdap_rib::res_info_t &res){
-	(void) res;
-	(void) con;
-	(void) obj;
-}
-
 
 };//namespace mad
 };//namespace rinad

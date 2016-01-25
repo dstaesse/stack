@@ -598,8 +598,10 @@ static int pfte_port_id_altlists_copy(struct pft_entry *entry,
 	alt->num_ports = i;
 
 	alt->ports = rkmalloc(i * sizeof(*(alt->ports)), GFP_ATOMIC);
-	if (!alt->ports)
+	if (!alt->ports) {
+		rkfree(alt);
 		return -1;
+	}
 
 	/* Fill in the ports */
 	i = 0;
@@ -650,30 +652,6 @@ static int lfa_dump(struct pff_ps *ps,
 	return 0;
 }
 
-/* NOTE: This is skeleton code that was directly copy pasted */
-static int pff_ps_set_policy_set_param(struct ps_base *bps,
-				       const char *name,
-				       const char *value)
-{
-	struct pff_ps *ps = container_of(bps, struct pff_ps, base);
-
-	(void) ps;
-
-	if (!name) {
-		LOG_ERR("Null parameter name");
-		return -1;
-	}
-
-	if (!value) {
-		LOG_ERR("Null parameter value");
-		return -1;
-	}
-
-	LOG_ERR("No such parameter to set");
-
-	return -1;
-}
-
 static struct ps_base *
 pff_ps_lfa_create(struct rina_component *component)
 {
@@ -691,10 +669,12 @@ pff_ps_lfa_create(struct rina_component *component)
 	INIT_LIST_HEAD(&priv->ports_down);
 
 	ps = rkzalloc(sizeof(*ps), GFP_KERNEL);
-	if (!ps)
+	if (!ps) {
+		rkfree(priv);
 		return NULL;
+	}
 
-	ps->base.set_policy_set_param = pff_ps_set_policy_set_param;
+	ps->base.set_policy_set_param = NULL; /* default */
 	ps->dm = pff;
 	ps->priv = (void *) priv;
 

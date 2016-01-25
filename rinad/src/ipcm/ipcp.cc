@@ -5,19 +5,20 @@
  *    Eduard Grasa          <eduard.grasa@i2cat.net>
  *    Marc Sune             <marc.sune (at) bisdn.de>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA  02110-1301  USA
  */
 
 #include <cstdlib>
@@ -449,21 +450,18 @@ void IPCMIPCProcess::pluginLoad(const std::string& name, bool load,
 	proxy_->pluginLoad(name, load, opaque);
 }
 
-void IPCMIPCProcess::forwardCDAPMessage(const rina::CDAPMessage& msg,
+void IPCMIPCProcess::forwardCDAPMessage(const rina::cdap::CDAPMessage& msg,
 					unsigned int opaque)
 {
-	rina::WireMessageProviderInterface * wmpi =
-		rina::WireMessageProviderFactory().createWireMessageProvider();
-	const rina::SerializedObject * so;
-	stringstream ss;
+	rina::ser_obj_t encoded_msg;
+	rina::cdap_rib::concrete_syntax_t syntax;
+	rina::cdap::CDAPMessageEncoder encoder(syntax);
 
-	so = wmpi->serializeMessage(msg);
-	delete wmpi;
+	encoder.encode(msg, encoded_msg);
 
-	proxy_->forwardCDAPMessage(*so, opaque);
-	delete so;
+	proxy_->forwardCDAPMessage(encoded_msg,
+				   opaque);
 }
-
 
 //
 // IPCM IPC process factory

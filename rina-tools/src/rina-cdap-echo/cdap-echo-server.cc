@@ -4,19 +4,26 @@
 // Addy Bombeke <addy.bombeke@ugent.be>
 // Bernat Gastón <bernat.gaston@i2cat.net>
 // 
-// This program is free software; you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation; either version 2 of the License, or
-// (at your option) any later version.
-// 
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-// 
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software
-// Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//   1. Redistributions of source code must retain the above copyright
+//      notice, this list of conditions and the following disclaimer.
+//   2. Redistributions in binary form must reproduce the above copyright
+//      notice, this list of conditions and the following disclaimer in the
+//      documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS AND
+// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+// OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+// HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+// LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+// OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+// SUCH DAMAGE.
 //
 
 #include <cstring>
@@ -58,7 +65,7 @@ void ConnectionCallback::remote_read_request(
 	cdap_rib::res_info_t res;
 	res.code_ = rina::cdap_rib::CDAP_SUCCESS;
 	std::cout<<"read request CDAP message received"<<std::endl;
-	get_provider()->send_read_result(con.port_, obj, flags, res, message_id);
+	get_provider()->send_read_result(con, obj, flags, res, message_id);
 	std::cout<<"read response CDAP message sent"<<std::endl;
 }
 
@@ -68,7 +75,7 @@ void ConnectionCallback::close_connection(const rina::cdap_rib::con_handle_t &co
 	cdap_rib::res_info_t res;
 	res.code_ = rina::cdap_rib::CDAP_SUCCESS;
 	std::cout<<"conection close request CDAP message received"<<std::endl;
-	get_provider()->send_close_connection_result(con.port_, flags, res, message_id);
+	get_provider()->send_close_connection_result(con.port_id, flags, res, message_id);
 	std::cout<<"conection close response CDAP message sent"<<std::endl;
 	*keep_serving_ = false;
 }
@@ -91,12 +98,13 @@ int CDAPEchoWorker::internal_run()
 void CDAPEchoWorker::serveEchoFlow(int port_id)
 {
 	bool keep_serving = true;
-	char buffer[max_sdu_size];
+	unsigned char buffer[max_sdu_size];
 	rina::cdap::CDAPProviderInterface *cdap_prov;
+	rina::cdap_rib::concrete_syntax_t syntax;
 	int bytes_read = 0;
 
 	ConnectionCallback callback(&keep_serving);
-	cdap::init(&callback, false);
+	cdap::init(&callback, syntax, false);
 
 	cdap_prov = cdap::getProvider();
 
@@ -123,7 +131,7 @@ void CDAPEchoWorker::serveEchoFlow(int port_id)
 			break;
 		}
 
-		cdap_rib::SerializedObject message;
+		ser_obj_t message;
 		message.message_ = buffer;
 		message.size_ = bytes_read;
 		cdap_prov->process_message(message, port_id);

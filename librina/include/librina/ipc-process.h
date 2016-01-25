@@ -666,7 +666,7 @@ public:
 	 * @throws QueryRIBResponseException
 	 */
 	void queryRIBResponse(const QueryRIBRequestEvent& event, int result,
-			      const std::list<RIBObjectData>& ribObjects);
+			      const std::list<rib::RIBObjectData>& ribObjects);
 
 	/**
 	 * Request an available portId to the kernel
@@ -723,7 +723,7 @@ public:
 	 * @throws FwdCDAPMsgException
 	 */
 	void forwardCDAPResponse(unsigned sequenceNumber,
-				 const rina::SerializedObject& sermsg,
+				 const ser_obj_t& sermsg,
 				 int result);
 };
 
@@ -731,6 +731,19 @@ public:
  * Make Extended IPC Manager singleton
  */
 extern Singleton<ExtendedIPCManager> extendedIPCManager;
+
+class DTPStatistics {
+public:
+	DTPStatistics() : tx_bytes(0), tx_pdus(0),
+		rx_bytes(0), rx_pdus(0), drop_pdus(0), err_pdus(0) {};
+
+	unsigned long tx_bytes;
+	unsigned int tx_pdus;
+	unsigned long rx_bytes;
+	unsigned int rx_pdus;
+	unsigned int drop_pdus;
+	unsigned int err_pdus;
+};
 
 /**
  * Represents the data to create an EFCP connection
@@ -743,36 +756,26 @@ public:
         /** The address of the IPC Process at the source of the conection */
         unsigned int sourceAddress;
 
-        /**
-         * The address of the IPC Process at the destination of
-         * the connection
-         */
+        /** The address of the IPC Process at the destination of the connection */
         unsigned int destAddress;
 
-        /**
-         * The id of the QoS cube associated to the connection
-         */
+        /** The id of the QoS cube associated to the connection */
         unsigned int qosId;
 
-        /**
-         * The source CEP-id
-         */
+        /** The source CEP-id */
         int sourceCepId;
 
-        /**
-         * The destination CEP-id
-         */
+        /** The destination CEP-id */
         int destCepId;
 
-        /**
-         * The DTP connection policies
-         */
+        /** The DTP connection policies */
         DTPConfig dtpConfig;
 
-        /**
-         * The DTCP connection policies
-         */
+        /** The DTCP connection policies */
         DTCPConfig dtcpConfig;
+
+        /** Connection statistics */
+	DTPStatistics stats;
 
         /**
          * The id of the IPC Process using the flow supported by this
@@ -804,12 +807,28 @@ public:
         const std::string toString();
 };
 
+struct DTPInformation {
+	unsigned int src_cep_id;
+	unsigned int dest_cep_id;
+	unsigned int src_address;
+	unsigned int dest_address;
+	unsigned int qos_id;
+	unsigned int port_id;
+	DTPConfig dtp_config;
+	DTPStatistics stats;
+
+	DTPInformation();
+	DTPInformation(Connection * connection);
+	const std::string toString() const;
+};
+
 struct NHopAltList {
 	/** Next hop and its alternates */
 	std::list<unsigned int> alts;
 
 	NHopAltList() { }
 	NHopAltList(unsigned int x) { alts.push_back(x); }
+	void add_alt(unsigned int x) { alts.push_back(x); }
 };
 
 /// Models an entry of the routing table
@@ -828,6 +847,7 @@ public:
 	std::list<NHopAltList> nextHopAddresses;
 
 	RoutingTableEntry();
+	const std::string getKey() const;
 };
 
 struct PortIdAltlist {
@@ -849,6 +869,9 @@ public:
         /** The qos-id */
         unsigned int qosId;
 
+	/** The cost */
+	unsigned int cost;
+
         /** The N-1 portid */
         std::list<PortIdAltlist> portIdAltlists;
 
@@ -864,6 +887,7 @@ public:
         void setQosId(unsigned int qosId);
 #endif
         const std::string toString();
+        const std::string getKey() const;
 };
 
 /**
@@ -887,12 +911,13 @@ public:
 #endif
 };
 
-class EnableEncryptionResponseEvent: public IPCEvent {
+class UpdateCryptoStateResponseEvent: public IPCEvent {
 public:
-        EnableEncryptionResponseEvent(int res,
-                        int port_id, unsigned int sequenceNumber);
+	UpdateCryptoStateResponseEvent(int res,
+                        	       int port_id,
+                        	       unsigned int sequenceNumber);
 
-        // The N-1 port-id where encryption was to be applied
+        // The N-1 port-id where crypto state was updated
         int port_id;
 
         // Result of the operation, 0 success
@@ -1010,8 +1035,8 @@ public:
          */
         unsigned int dumptPDUFT();
 
-        /// Request the kernel to enable encryption, decryption or both on a certain port
-        unsigned int enableEncryption(const EncryptionProfile& profile);
+        /// Request the kernel to update the state of cryptographic protection policies
+        unsigned int updateCryptoState(const CryptoState& state);
 
         /**
          * Request the Kernel IPC Process to modify a policy-set-related
@@ -1098,7 +1123,7 @@ public:
 	 * Returns a key identifying this entry
 	 * @return
 	 */
-	std::string getKey();
+	const std::string getKey() const;
 	std::string toString();
 
 	/// The name of the application process

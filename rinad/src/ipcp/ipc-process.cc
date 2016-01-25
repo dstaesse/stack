@@ -3,19 +3,20 @@
 //
 //    Eduard Grasa <eduard.grasa@i2cat.net>
 //
-// This program is free software; you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation; either version 2 of the License, or
-// (at your option) any later version.
+// This library is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 2.1 of the License, or (at your option) any later version.
 //
-// This program is distributed in the hope that it will be useful,
+// This library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software
-// Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+// You should have received a copy of the GNU Lesser General Public
+// License along with this library; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+// MA  02110-1301  USA
 //
 
 #include <cstdlib>
@@ -32,6 +33,7 @@
 #include "ipcp/resource-allocator.h"
 #include "ipcp/rib-daemon.h"
 #include "ipcp/components.h"
+#include "ipcp/utils.h"
 
 namespace rinad {
 
@@ -45,6 +47,32 @@ namespace rinad {
 #define IPCP_EVENT_TIMEOUT_S 0
 #define IPCP_EVENT_TIMEOUT_NS 1000000000 //1 sec
 
+//Class KernelSyncTrigger
+KernelSyncTrigger::KernelSyncTrigger(rina::ThreadAttributes * threadAttributes,
+		  	  	     IPCProcessImpl * ipc_process,
+		  	  	     unsigned int sync_period)
+	: rina::SimpleThread(threadAttributes)
+{
+	end = false;
+	ipcp = ipc_process;
+	period_in_ms = sync_period;
+}
+
+int KernelSyncTrigger::run()
+{
+	while(!end) {
+		sleep.sleepForMili(period_in_ms);
+		ipcp->sync_with_kernel();
+	}
+
+	return 0;
+}
+
+void KernelSyncTrigger::finish()
+{
+	end = true;
+}
+
 //Class IPCProcessImpl
 IPCProcessImpl::IPCProcessImpl(const rina::ApplicationProcessNamingInformation& nm,
 		unsigned short id, unsigned int ipc_manager_port,
@@ -54,6 +82,7 @@ IPCProcessImpl::IPCProcessImpl(const rina::ApplicationProcessNamingInformation& 
                 std::stringstream ss;
                 ss << IPCP_LOG_IPCP_FILE_PREFIX << "-" << id;
                 rina::initialize(log_level, log_file);
+                LOG_DBG("IPCProcessImpl");
                 rina::extendedIPCManager->ipcManagerPort = ipc_manager_port;
                 rina::extendedIPCManager->ipcProcessId = id;
                 rina::kernelIPCProcess->ipcProcessId = id;
@@ -65,11 +94,9 @@ IPCProcessImpl::IPCProcessImpl(const rina::ApplicationProcessNamingInformation& 
 
         state = NOT_INITIALIZED;
         lock_ = new rina::Lockable();
+        kernel_sync = NULL;
 
         // Initialize application entities
-        init_cdap_session_manager();
-        init_encoder();
-
         delimiter_ = 0; //TODO initialize Delimiter once it is implemented
         internal_event_manager_ = new rina::SimpleInternalEventManager();
         enrollment_task_ = new EnrollmentTask();
@@ -78,17 +105,17 @@ IPCProcessImpl::IPCProcessImpl(const rina::ApplicationProcessNamingInformation& 
         resource_allocator_ = new ResourceAllocator();
         security_manager_ = new IPCPSecurityManager();
         routing_component_ = new RoutingComponent();
-        rib_daemon_ = new IPCPRIBDaemonImpl();
+        rib_daemon_ = new IPCPRIBDaemonImpl(enrollment_task_);
 
         add_entity(internal_event_manager_);
         add_entity(rib_daemon_);
         add_entity(enrollment_task_);
+        add_entity(routing_component_);
         add_entity(resource_allocator_->get_n_minus_one_flow_manager());
         add_entity(resource_allocator_);
         add_entity(namespace_manager_);
         add_entity(flow_allocator_);
         add_entity(security_manager_);
-        add_entity(routing_component_);
 
         try {
                 rina::ApplicationProcessNamingInformation naming_info(name_, instance_);
@@ -109,129 +136,22 @@ IPCProcessImpl::~IPCProcessImpl() {
 		delete lock_;
 	}
 
+	if (kernel_sync) {
+		kernel_sync->finish();
+		kernel_sync->join(NULL);
+		delete kernel_sync;
+	}
+
 	if (delimiter_) {
 		delete delimiter_;
 	}
-
-	if (encoder_) {
-		delete encoder_;
-	}
-
-	if (internal_event_manager_) {
-		delete internal_event_manager_;
-	}
-
-	if (cdap_session_manager_) {
-		delete cdap_session_manager_;
-	}
-
-	if (enrollment_task_) {
-		if (enrollment_task_->ps) {
-			psDestroy(rina::ApplicationEntity::ENROLLMENT_TASK_AE_NAME,
-				  enrollment_task_->selected_ps_name,
-				  enrollment_task_->ps);
-		}
-		delete enrollment_task_;
-	}
-
-	if (flow_allocator_) {
-		if (flow_allocator_->ps) {
-			psDestroy(IFlowAllocator::FLOW_ALLOCATOR_AE_NAME,
-				  flow_allocator_->selected_ps_name,
-				  flow_allocator_->ps);
-		}
-		delete flow_allocator_;
-	}
-
-	if (namespace_manager_) {
-		if (namespace_manager_->ps) {
-			psDestroy(INamespaceManager::NAMESPACE_MANAGER_AE_NAME,
-				  namespace_manager_->selected_ps_name,
-				  namespace_manager_->ps);
-		}
-		delete namespace_manager_;
-	}
-
-	if (resource_allocator_) {
-		if (resource_allocator_->ps) {
-			psDestroy(IResourceAllocator::RESOURCE_ALLOCATOR_AE_NAME,
-				  resource_allocator_->selected_ps_name,
-				  resource_allocator_->ps);
-		}
-		delete resource_allocator_;
-	}
-
-	if (security_manager_) {
-		if (security_manager_->ps) {
-			psDestroy(rina::ApplicationEntity::SECURITY_MANAGER_AE_NAME,
-				  security_manager_->selected_ps_name,
-				  security_manager_->ps);
-		}
-		delete security_manager_;
-	}
-
-	if (routing_component_) {
-		if (routing_component_->ps) {
-			psDestroy(IRoutingComponent::ROUTING_COMPONENT_AE_NAME,
-				  routing_component_->selected_ps_name,
-				  routing_component_->ps);
-		}
-		delete routing_component_;
-	}
-
-	if (rib_daemon_) {
-		if (rib_daemon_->ps) {
-			psDestroy(IPCPRIBDaemon::RIB_DAEMON_AE_NAME,
-				  rib_daemon_->selected_ps_name,
-				  rib_daemon_->ps);
-		}
-		delete rib_daemon_;
-	}
-}
-
-void IPCProcessImpl::init_cdap_session_manager() {
-	rina::WireMessageProviderFactory wire_factory_;
-	rina::CDAPSessionManagerFactory cdap_manager_factory_;
-	long timeout = 180000;
-	cdap_session_manager_ = cdap_manager_factory_.createCDAPSessionManager(
-			&wire_factory_, timeout);
-}
-
-void IPCProcessImpl::init_encoder() {
-	encoder_ = new rinad::Encoder();
-	encoder_->addEncoder(EncoderConstants::DATA_TRANSFER_CONSTANTS_RIB_OBJECT_CLASS,
-			new DataTransferConstantsEncoder());
-	encoder_->addEncoder(EncoderConstants::DFT_ENTRY_RIB_OBJECT_CLASS,
-			new DirectoryForwardingTableEntryEncoder());
-	encoder_->addEncoder(EncoderConstants::DFT_ENTRY_SET_RIB_OBJECT_CLASS,
-			new DirectoryForwardingTableEntryListEncoder());
-	encoder_->addEncoder(EncoderConstants::ENROLLMENT_INFO_OBJECT_CLASS,
-			new EnrollmentInformationRequestEncoder());
-	encoder_->addEncoder(EncoderConstants::FLOW_RIB_OBJECT_CLASS,
-			new FlowEncoder());
-	encoder_->addEncoder(rina::NeighborSetRIBObject::NEIGHBOR_RIB_OBJECT_CLASS,
-			new NeighborEncoder());
-	encoder_->addEncoder(rina::NeighborSetRIBObject::NEIGHBOR_SET_RIB_OBJECT_CLASS,
-			new NeighborListEncoder());
-	encoder_->addEncoder(EncoderConstants::QOS_CUBE_RIB_OBJECT_CLASS,
-			new QoSCubeEncoder());
-	encoder_->addEncoder(EncoderConstants::QOS_CUBE_SET_RIB_OBJECT_CLASS,
-			new QoSCubeListEncoder());
-	encoder_->addEncoder(EncoderConstants::WHATEVERCAST_NAME_RIB_OBJECT_CLASS,
-			new WhatevercastNameEncoder());
-	encoder_->addEncoder(EncoderConstants::WHATEVERCAST_NAME_SET_RIB_OBJECT_CLASS,
-			new WhatevercastNameListEncoder());
-	encoder_->addEncoder(EncoderConstants::WATCHDOG_RIB_OBJECT_CLASS,
-			new WatchdogEncoder());
-	encoder_->addEncoder(rina::ADataObject::A_DATA_OBJECT_CLASS,
-			new ADataObjectEncoder());
 }
 
 unsigned short IPCProcessImpl::get_id() {
 	return rina::extendedIPCManager->ipcProcessId;
 }
 
-const std::list<rina::Neighbor*> IPCProcessImpl::get_neighbors() const {
+const std::list<rina::Neighbor> IPCProcessImpl::get_neighbors() const {
 	return enrollment_task_->get_neighbors();
 }
 
@@ -245,7 +165,7 @@ void IPCProcessImpl::set_operational_state(const IPCProcessOperationalState& ope
 	state = operational_state;
 }
 
-const rina::DIFInformation& IPCProcessImpl::get_dif_information() const {
+rina::DIFInformation& IPCProcessImpl::get_dif_information() {
 	rina::ScopedLock g(*lock_);
 	return dif_information_;
 }
@@ -350,6 +270,11 @@ void IPCProcessImpl::processAssignToDIFResponseEvent(const rina::AssignToDIFResp
 		LOG_IPCP_ERR("Bad configuration error: %s", e.what());
 		rina::extendedIPCManager->assignToDIFResponse(requestEvent, -1);
 	}
+
+	rina::ThreadAttributes threadAttributes;
+	threadAttributes.setJoinable();
+	kernel_sync = new KernelSyncTrigger(&threadAttributes, this, 4000);
+	kernel_sync->start();
 
 	state = ASSIGNED_TO_DIF;
 
@@ -623,7 +548,7 @@ void IPCProcessImpl::processSelectPolicySetResponseEvent(
 
 void IPCProcessImpl::processPluginLoadRequestEvent(
                         const rina::PluginLoadRequestEvent& event) {
-		rina::ScopedLock g(*lock_);
+	rina::ScopedLock g(*lock_);
         int result;
 
         if (event.load) {
@@ -637,27 +562,16 @@ void IPCProcessImpl::processPluginLoadRequestEvent(
 }
 
 void IPCProcessImpl::processFwdCDAPMsgEvent(
-                        const rina::FwdCDAPMsgEvent& event) {
-	const rina::CDAPMessage * msg;
-	rina::CDAPSessionDescriptor * session_descr;
-
+                        const rina::FwdCDAPMsgEvent& event)
+{
 	if (!event.sermsg.message_) {
 		LOG_IPCP_ERR("No CDAP message to be forwarded");
 		return;
 	}
 
-	msg = rib_daemon_->wmpi->deserializeMessage(event.sermsg);
-
-	LOG_IPCP_INFO("Forwarded CDAP Message:\n%s",
-		      msg->to_string().c_str());
-
-	session_descr = new IPCMCDAPSessDesc(event.sequenceNumber);
-
-	rib_daemon_->processIncomingCDAPMessage(msg, session_descr,
-			rina::CDAPSessionInterface::SESSION_STATE_CON);
-
-	delete msg;
-	delete session_descr;
+	rina::cdap::getProvider()->process_message(event.sermsg,
+						   event.sequenceNumber,
+						   rina::cdap_rib::CDAP_DEST_IPCM);
 
         return;
 }
@@ -667,7 +581,7 @@ void IPCProcessImpl::event_loop(void){
 
 	rina::IPCEvent *e;
 
-	bool keep_running = true;
+	keep_running = true;
 
 	LOG_DBG("Starting main I/O loop...");
 
@@ -678,8 +592,10 @@ void IPCProcessImpl::event_loop(void){
 		if(!e)
 			continue;
 
-		if(!keep_running)
+		if(!keep_running){
+			delete e;
 			break;
+		}
 
 		LOG_IPCP_DBG("Got event of type %s and sequence number %u",
 							rina::IPCEvent::eventTypeToString(e->eventType).c_str(),
@@ -832,10 +748,10 @@ void IPCProcessImpl::event_loop(void){
 				processPluginLoadRequestEvent(*event);
 				}
 				break;
-			case rina::IPC_PROCESS_ENABLE_ENCRYPTION_RESPONSE:
+			case rina::IPC_PROCESS_UPDATE_CRYPTO_STATE_RESPONSE:
 				{
-				DOWNCAST_DECL(e, rina::EnableEncryptionResponseEvent, event);
-				security_manager_->process_enable_encryption_response(*event);
+				DOWNCAST_DECL(e, rina::UpdateCryptoStateResponseEvent, event);
+				security_manager_->process_update_crypto_state_response(*event);
 				}
 				break;
 			case rina::IPC_PROCESS_FWD_CDAP_MSG:
@@ -867,8 +783,42 @@ void IPCProcessImpl::event_loop(void){
 			default:
 				break;
 		}
+		delete e;
 	}
+}
 
+void IPCProcessImpl::sync_with_kernel()
+{
+	flow_allocator_->sync_with_kernel();
+	resource_allocator_->sync_with_kernel();
+}
+
+//Class IPCPFactory
+static IPCProcessImpl * ipcp = NULL;
+
+IPCProcessImpl* IPCPFactory::createIPCP(const rina::ApplicationProcessNamingInformation& name,
+				  	unsigned short id,
+				  	unsigned int ipc_manager_port,
+				  	std::string log_level,
+				  	std::string log_file)
+{
+	if(!ipcp) {
+		ipcp = new IPCProcessImpl(name,
+					  ipcp_id,
+					  ipc_manager_port,
+					  log_level,
+					  log_file);
+		return ipcp;
+	} else
+		return 0;
+}
+
+IPCProcessImpl* IPCPFactory::getIPCP()
+{
+	if (ipcp)
+		return ipcp;
+
+	return NULL;
 }
 
 } //namespace rinad

@@ -27,7 +27,6 @@
 #include <linux/types.h>
 
 #include "common.h"
-#include "qos.h"
 #include "buffer.h"
 #include "pdu.h"
 
@@ -55,6 +54,8 @@ typedef uint8_t pdu_flags_t;
 #define PDU_TYPE_SNACK_AND_FC  0xCE /* Selective NACK and Flow Control */
 /* Management PDUs */
 #define PDU_TYPE_MGMT          0x40 /* Management */
+/* Number of different PDU types */
+#define PDU_TYPES              12 + 1 /* one slot for base PCI size */
 
 typedef uint8_t pdu_type_t;
 
@@ -155,5 +156,9 @@ seq_num_t             pci_control_new_left_wind_edge(const struct pci * pci);
 seq_num_t             pci_control_my_rt_wind_edge(const struct pci * pci);
 seq_num_t             pci_control_my_left_wind_edge(const struct pci * pci);
 seq_num_t             pci_control_last_seq_num_rcvd(const struct pci * pci);
+u_int32_t             pci_control_sndr_rate(const struct pci * pci);
+int                 pci_control_sndr_rate_set(struct pci * pci, u_int32_t rate);
+u_int32_t             pci_control_time_frame(const struct pci * pci);
+int               pci_control_time_frame_set(struct pci * pci, u_int32_t frame);
 
 #endif

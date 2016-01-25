@@ -3,19 +3,20 @@
 //
 //    Francesco Salvestrini <f.salvestrini@nextworks.it>
 //
-// This program is free software; you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation; either version 2 of the License, or
-// (at your option) any later version.
+// This library is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 2.1 of the License, or (at your option) any later version.
 //
-// This program is distributed in the hope that it will be useful,
+// This library is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
 //
-// You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software
-// Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+// You should have received a copy of the GNU Lesser General Public
+// License along with this library; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+// MA  02110-1301  USA
 //
 
 #include <stdlib.h>
@@ -36,7 +37,15 @@
 //IPCP id
 int ipcp_id;
 
-int wrapped_main(int argc, char * argv[])
+class Main{
+public:
+        int wrapped_main(int argc, char * argv[]);
+        static rinad::IPCProcessImpl* ipcp;
+};
+
+rinad::IPCProcessImpl* Main::ipcp;
+
+int Main::wrapped_main(int argc, char * argv[])
 {
 	std::string log_level = argv[5];
 	std::string log_file = argv[6];
@@ -51,7 +60,8 @@ int wrapped_main(int argc, char * argv[])
 		return EXIT_FAILURE;
 	}
 
-	rinad::IPCProcessImpl ipcp(name, ipcp_id, ipcm_port, log_level, log_file);
+	ipcp = rinad::IPCPFactory::createIPCP(name, ipcp_id, ipcm_port,
+	                                      log_level, log_file);
 
 	LOG_IPCP_INFO("IPC Process name:     %s", argv[1]);
 	LOG_IPCP_INFO("IPC Process instance: %s", argv[2]);
@@ -61,7 +71,7 @@ int wrapped_main(int argc, char * argv[])
 	LOG_IPCP_INFO("IPC Process initialized, executing event loop...");
 
 	try {
-		ipcp.event_loop();
+		ipcp->event_loop();
 	} catch (rina::Exception &e) {
 		LOG_IPCP_ERR("Problems running event loop: %s", e.what());
 	} catch (std::exception &e1) {
@@ -71,6 +81,8 @@ int wrapped_main(int argc, char * argv[])
 	}
 
 	LOG_IPCP_DBG("Exited event loop");
+
+	delete ipcp;
 
 	return EXIT_SUCCESS;
 }
@@ -85,9 +97,20 @@ void sighandler_segv(int signum)
 	}
 }
 
+void sighandler_sigint(int signum)
+{
+        LOG_IPCP_CRIT("Got signal %d", signum);
+
+        if (signum == SIGINT) {
+                Main::ipcp->keep_running = false;
+        }
+}
+
+
 int main(int argc, char * argv[])
 {
 	int retval;
+	Main main;
 
 	//Check first things first
 	if(geteuid() != 0){
@@ -118,14 +141,14 @@ int main(int argc, char * argv[])
 	}
 	LOG_IPCP_DBG("SIGPIPE handler installed successfully");
 
-	if (signal(SIGINT, SIG_IGN) == SIG_ERR)
+	if (signal(SIGINT, sighandler_sigint) == SIG_ERR)
 		LOG_IPCP_WARN("Cannot ignore SIGINT!");
 
 	LOG_IPCP_DBG("SIGINT handler installed successfully");
 
 
 	try {
-		retval = wrapped_main(argc, argv);
+		retval = main.wrapped_main(argc, argv);
 	} catch (std::exception & e) {
 		LOG_IPCP_ERR("Got unhandled exception (%s)", e.what());
 		retval = EXIT_FAILURE;

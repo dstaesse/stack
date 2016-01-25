@@ -14,7 +14,8 @@
 #include <librina/common.h>
 
 //Encoders and structs
-#include "encoders_mad.h"
+#include "configuration.h"
+#include "encoder.h"
 
 namespace rinad{
 namespace mad{
@@ -42,7 +43,7 @@ public:
 				const std::string& class_,
 				const rina::cdap_rib::filt_info_t &filt,
 				const int invoke_id,
-				rina::cdap_rib::SerializedObject &obj_reply,
+				rina::ser_obj_t &obj_reply,
 				rina::cdap_rib::res_info_t& res);
 
 
@@ -61,8 +62,8 @@ public:
 			const std::string& class_,
 			const rina::cdap_rib::filt_info_t &filt,
 			const int invoke_id,
-			const rina::cdap_rib::SerializedObject &obj_req,
-			rina::cdap_rib::SerializedObject &obj_reply,
+			const rina::ser_obj_t &obj_req,
+			rina::ser_obj_t &obj_reply,
 			rina::cdap_rib::res_info_t& res);
 
 
@@ -73,12 +74,9 @@ public:
 	int processID_;
 
 protected:
-	static int createIPCP(rinad::mad_manager::structures::ipcp_config_t &object);
-	static bool assignToDIF(rinad::mad_manager::structures::ipcp_config_t &object, int ipcp_id);
-	static bool registerAtDIFs(rinad::mad_manager::structures::ipcp_config_t &object, int ipcp_id);
-
-private:
-	mad_manager::encoders::IPCPEncoder encoder;
+	static int createIPCP(rinad::configs::ipcp_config_t &object);
+	static bool assignToDIF(rinad::configs::ipcp_config_t &object, int ipcp_id);
+	static bool registerAtDIFs(rinad::configs::ipcp_config_t &object, int ipcp_id);
 };
 
 }; //namespace rib_v1

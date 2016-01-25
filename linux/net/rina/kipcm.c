@@ -22,7 +22,6 @@
 
 #include <linux/kernel.h>
 #include <linux/export.h>
-#include <linux/kobject.h>
 #include <linux/mutex.h>
 #include <linux/hardirq.h>
 
@@ -51,6 +50,10 @@ struct flow_messages {
 };
 
 struct kipcm {
+	/* FIXME: LB: instances and rset replicate the same info (list of
+	 * ipcps), instances could be probably removed if we stay with robjs
+	 */
+	struct rset *           rset;
         struct mutex            lock;
         struct ipcp_factories * factories;
         struct ipcp_imap *      instances;
@@ -58,6 +61,9 @@ struct kipcm {
         struct rnl_set *        rnls;
         struct kfa *            kfa;
 };
+
+struct kipcm * default_kipcm;
+EXPORT_SYMBOL(default_kipcm);
 
 message_handler_cb kipcm_handlers[RINA_C_MAX];
 
@@ -1495,17 +1501,17 @@ out:
         return 0;
 }
 
-static int notify_ipcp_enable_encryption(void *             data,
-                                         struct sk_buff *   buff,
-                                         struct genl_info * info)
+static int notify_ipcp_update_crypto_state(void *             data,
+                                           struct sk_buff *   buff,
+                                           struct genl_info * info)
 {
-        struct kipcm *                                 kipcm = data;
-        struct rnl_ipcp_enable_encrypt_req_msg_attrs * attrs;
-        struct rnl_msg *                               msg;
-        struct ipcp_instance *                         ipc_process;
-        ipc_process_id_t                               ipc_id = 0;
+        struct kipcm * kipcm = data;
+        struct rnl_ipcp_update_crypto_state_req_msg_attrs * attrs;
+        struct rnl_msg * msg;
+        struct ipcp_instance * ipc_process;
+        ipc_process_id_t ipc_id = 0;
         int retval = 0;
-        port_id_t				       port_id = 0;
+        port_id_t port_id = 0;
 
         if (!data) {
                 LOG_ERR("Bogus kipcm instance passed, cannot parse NL msg");
@@ -1517,7 +1523,7 @@ static int notify_ipcp_enable_encryption(void *             data,
                 return -1;
         }
 
-        msg = rnl_msg_create(RNL_MSG_ATTRS_ENABLE_ENCRYPTION_REQUEST);
+        msg = rnl_msg_create(RNL_MSG_ATTRS_UPDATE_CRYPTO_STATE_REQUEST);
         if (!msg) {
                 retval = -1;
                 goto out;
@@ -1541,10 +1547,10 @@ static int notify_ipcp_enable_encryption(void *             data,
         LOG_DBG("Found IPC Process with id %d", ipc_id);
 
         ASSERT(ipc_process->ops);
-        if (ipc_process->ops->enable_encryption) {
-                retval = ipc_process->ops->enable_encryption(ipc_process->data,
-                                attrs->encryption_enabled, attrs->decrption_enabled,
-                                attrs->encrypt_key, attrs->port_id);
+        if (ipc_process->ops->update_crypto_state) {
+                retval = ipc_process->ops->update_crypto_state(ipc_process->data,
+                                			       attrs->state,
+                                			       attrs->port_id);
                 if (retval) {
                         LOG_ERR("Enable encryption operation failed");
                 }
@@ -1557,8 +1563,11 @@ static int notify_ipcp_enable_encryption(void *             data,
 out:
         rnl_msg_destroy(msg);
 
-        if (rnl_enable_encryption_response(ipc_id, retval, info->snd_seq,
-        		port_id, info->snd_portid))
+        if (rnl_update_crypto_state_response(ipc_id,
+        				     retval,
+        				     info->snd_seq,
+        				     port_id,
+        				     info->snd_portid))
                 return -1;
 
         return 0;
@@ -1621,8 +1630,8 @@ static int netlink_handlers_register(struct kipcm * kipcm)
                 notify_ipcp_select_policy_set;
         kipcm_handlers[RINA_C_IPCP_SELECT_POLICY_SET_REQUEST]      =
                 notify_ipcp_select_policy_set;
-        kipcm_handlers[RINA_C_IPCP_ENABLE_ENCRYPTION_REQUEST]      =
-                notify_ipcp_enable_encryption;
+        kipcm_handlers[RINA_C_IPCP_UPDATE_CRYPTO_STATE_REQUEST]      =
+                notify_ipcp_update_crypto_state;
 
         for (i = 1; i < RINA_C_MAX; i++) {
                 if (kipcm_handlers[i] != NULL) {
@@ -1648,22 +1657,27 @@ static int netlink_handlers_register(struct kipcm * kipcm)
         return 0;
 }
 
-struct kipcm * kipcm_create(struct kobject * parent,
-                            struct rnl_set * rnls)
+int kipcm_init(struct robject * parent)
 {
         struct kipcm * tmp;
 
-        LOG_DBG("Initializing");
-
         tmp = rkzalloc(sizeof(*tmp), GFP_KERNEL);
         if (!tmp)
-                return NULL;
+                return -1;
+
+        tmp->rnls = rnl_set_create();
+        if (!tmp->rnls) {
+                LOG_ERR("Could not create RNL set ...");
+                rkfree(tmp);
+		return -1;
+        }
 
         tmp->factories = ipcpf_init(parent);
         if (!tmp->factories) {
                 LOG_ERR("Failed to build factories");
+		rnl_set_destroy(tmp->rnls);
                 rkfree(tmp);
-                return NULL;
+                return -1;
         }
 
         tmp->instances = ipcp_imap_create();
@@ -1672,8 +1686,9 @@ struct kipcm * kipcm_create(struct kobject * parent,
                 if (ipcpf_fini(tmp->factories)) {
                         /* FIXME: What could we do here ? */
                 }
+		rnl_set_destroy(tmp->rnls);
                 rkfree(tmp);
-                return NULL;
+                return -1;
         }
 
         tmp->messages = rkzalloc(sizeof(struct flow_messages), GFP_KERNEL);
@@ -1685,8 +1700,9 @@ struct kipcm * kipcm_create(struct kobject * parent,
                 if (ipcp_imap_destroy(tmp->instances)) {
                         /* FIXME: What could we do here ? */
                 }
+		rnl_set_destroy(tmp->rnls);
                 rkfree(tmp);
-                return NULL;
+                return -1;
         }
 
         tmp->messages->ingress = kipcm_pmap_create();
@@ -1701,8 +1717,9 @@ struct kipcm * kipcm_create(struct kobject * parent,
                         if (kipcm_smap_destroy(tmp->messages->egress)) {
                                 /* FIXME: What could we do here ? */
                         }
+		rnl_set_destroy(tmp->rnls);
                 rkfree(tmp);
-                return NULL;
+                return -1;
         }
 
         tmp->kfa = kfa_create();
@@ -1719,11 +1736,12 @@ struct kipcm * kipcm_create(struct kobject * parent,
                 if (ipcpf_fini(tmp->factories)) {
                         /* FIXME: What could we do here ? */
                 }
+		rnl_set_destroy(tmp->rnls);
                 rkfree(tmp);
-                return NULL;
+                return -1;
         }
 
-        if (rnl_set_register(rnls)) {
+        if (rnl_set_register(tmp->rnls)) {
                 if (kipcm_pmap_destroy(tmp->messages->ingress)) {
                         /* FIXME: What could we do here ? */
                 }
@@ -1739,12 +1757,15 @@ struct kipcm * kipcm_create(struct kobject * parent,
                 if (ipcpf_fini(tmp->factories)) {
                         /* FIXME: What could we do here ? */
                 }
+		rnl_set_destroy(tmp->rnls);
                 rkfree(tmp);
-                return NULL;
+                return -1;
         }
-        tmp->rnls = rnls;
 
         if (netlink_handlers_register(tmp)) {
+		if (rnl_set_unregister(tmp->rnls)) {
+			/* FIXME: What should we do here ? */
+		}
                 if (kipcm_pmap_destroy(tmp->messages->ingress)) {
                         /* FIXME: What could we do here ? */
                 }
@@ -1760,18 +1781,49 @@ struct kipcm * kipcm_create(struct kobject * parent,
                 if (ipcpf_fini(tmp->factories)) {
                         /* FIXME: What could we do here ? */
                 }
+		rnl_set_destroy(tmp->rnls);
                 rkfree(tmp);
-                return NULL;
+                return -1;
         }
+
+	tmp->rset = rset_create_and_add("ipcps", parent);
+	if (!tmp->rset) {
+		LOG_ERR("Could not initialize IPCP sys entry");
+        	if (netlink_handlers_unregister(tmp->rnls)) {
+        	        /* FIXME: What should we do here ? */
+        	}
+		if (rnl_set_unregister(tmp->rnls)) {
+			/* FIXME: What should we do here ? */
+		}
+                if (kipcm_pmap_destroy(tmp->messages->ingress)) {
+                        /* FIXME: What could we do here ? */
+                }
+                if (kipcm_smap_destroy(tmp->messages->egress)) {
+                        /* FIXME: What could we do here ? */
+                }
+                if (ipcp_imap_destroy(tmp->instances)) {
+                        /* FIXME: What could we do here ? */
+                }
+                if (kfa_destroy(tmp->kfa)) {
+                        /* FIXME: What could we do here ? */
+                }
+                if (ipcpf_fini(tmp->factories)) {
+                        /* FIXME: What could we do here ? */
+                }
+		rnl_set_destroy(tmp->rnls);
+                rkfree(tmp);
+                return -1;
+	}
 
         KIPCM_LOCK_INIT(tmp);
 
         LOG_DBG("Initialized successfully");
 
-        return tmp;
+	default_kipcm = tmp;
+	return 0;
 }
 
-int kipcm_destroy(struct kipcm * kipcm)
+int kipcm_fini(struct kipcm * kipcm)
 {
         if (!kipcm) {
                 LOG_ERR("Bogus kipcm instance passed, bailing out");
@@ -1810,11 +1862,18 @@ int kipcm_destroy(struct kipcm * kipcm)
                 /* FIXME: What should we do here? */
         }
 
+        if (rnl_set_destroy(kipcm->rnls)) {
+                /* FIXME: What should we do here? */
+        }
+	rnl_exit();
+
         KIPCM_UNLOCK(kipcm);
 
         KIPCM_LOCK_FINI(kipcm);
 
+	rset_unregister(kipcm->rset);
         rkfree(kipcm);
+	default_kipcm = NULL;
 
         LOG_DBG("Finalized successfully");
 
@@ -1901,10 +1960,10 @@ int kipcm_ipcp_factory_unregister(struct kipcm *        kipcm,
 }
 EXPORT_SYMBOL(kipcm_ipcp_factory_unregister);
 
-int kipcm_ipcp_create(struct kipcm *      kipcm,
-                      const struct name * ipcp_name,
-                      ipc_process_id_t    id,
-                      const char *        factory_name)
+int kipcm_ipc_create(struct kipcm *      kipcm,
+                     const struct name * ipcp_name,
+                     ipc_process_id_t    id,
+                     const char *        factory_name)
 {
         char *                 name;
         struct ipcp_factory *  factory;
@@ -1973,8 +2032,8 @@ int kipcm_ipcp_create(struct kipcm *      kipcm,
         return 0;
 }
 
-int kipcm_ipcp_destroy(struct kipcm *   kipcm,
-                       ipc_process_id_t id)
+int kipcm_ipc_destroy(struct kipcm *   kipcm,
+                      ipc_process_id_t id)
 {
         struct ipcp_instance * instance;
         struct ipcp_factory *  factory;
@@ -2199,7 +2258,7 @@ int kipcm_mgmt_sdu_read(struct kipcm *    kipcm,
 
         if (!kipcm) {
                 LOG_ERR("Bogus kipcm instance passed, bailing out");
-                return -1;
+                return -ESRCH;
         }
 
         KIPCM_LOCK(kipcm);
@@ -2207,20 +2266,20 @@ int kipcm_mgmt_sdu_read(struct kipcm *    kipcm,
         if (!ipcp) {
                 LOG_ERR("Could not find IPC Process with id %d", id);
                 KIPCM_UNLOCK(kipcm);
-                return -1;
+                return -ESRCH;
         }
 
         if (!ipcp->ops) {
                 LOG_ERR("Bogus IPCP ops, bailing out");
                 KIPCM_UNLOCK(kipcm);
-                return -1;
+                return -ESRCH;
         }
 
         if (!ipcp->ops->mgmt_sdu_read) {
                 LOG_ERR("The IPC Process %d doesn't support this operation",
                         id);
                 KIPCM_UNLOCK(kipcm);
-                return -1;
+                return -ESRCH;
         }
         KIPCM_UNLOCK(kipcm);
 
@@ -2415,6 +2474,12 @@ struct ipcp_instance * kipcm_find_ipcp_by_name(struct kipcm * kipcm,
 
         KIPCM_LOCK(kipcm);
 
+	if (!kipcm || !name_is_ok(name)) {
+        	KIPCM_UNLOCK(kipcm);
+		LOG_ERR("Wrong KIPCM or IPCP name struct passed...");
+		return NULL;
+	}
+
         ipc_process = ipcp_imap_find_by_name(kipcm->instances, name);
 
         KIPCM_UNLOCK(kipcm);
@@ -2434,3 +2499,14 @@ struct kfa * kipcm_kfa(struct kipcm * kipcm)
         return kipcm->kfa;
 }
 EXPORT_SYMBOL(kipcm_kfa);
+
+struct rset * kipcm_rset(struct kipcm * kipcm)
+{
+        if (!kipcm) {
+                LOG_ERR("Bogus kipcm instance passed, bailing out");
+                return NULL;
+        }
+
+        return kipcm->rset;
+}
+EXPORT_SYMBOL(kipcm_rset);

@@ -79,13 +79,11 @@ F: linux/net/rina/ipcp-factories*
 F: linux/net/rina/ipcp-instances*
 F: linux/net/rina/ipcp-utils*
 F: linux/net/rina/logs.h
-F: linux/net/rina/personality*
 F: linux/net/rina/pci*
 F: linux/net/rina/pdu.*
 F: linux/net/rina/qos*
 F: linux/net/rina/rds/
 F: linux/net/rina/rina.h
-F: linux/net/rina/rina-personality*
 F: linux/net/rina/sdu*
 F: linux/net/rina/utils*
 
@@ -93,7 +91,6 @@ SDK
 M: Vincenzo Maffione <v.maffione (at) nextworks.it>
 F: linux/net/rina/policies*
 F: linux/net/rina/ps-factory*
-F: linux/net/rina/rina-default-plugin*
 
 Shim eth-vlan and RINA ARP
 M: Sander Vrijders <sander.vrijders (at) intec.ugent.be>
@@ -159,6 +156,11 @@ F: linux/net/rina/syscall*
 Dummy kernel-space plugin:
 M: Leonardo Bergesio <leonardo.bergesio (at) i2cat.net>
 F: plugins/dummy/*
+F: plugins/red/*
+
+Plugins build system
+M: Vincenzo Maffione <v.maffione (at) nextworks.it>
+F: plugins/Makefile
 
 Jain's Congestion Avoidance plugin:
 M: Leonardo Bergesio <leonardo.bergesio (at) i2cat.net>
@@ -171,6 +173,14 @@ F: plugins/red/
 Loop-Free Alternate plugin:
 M: Sander Vrijders <sander.vrijders (at) intec.ugent.be>
 F: plugins/lfa/
+
+Multipath-forwarding plugin (ECMP-like):
+M: Javier Garcia <javier.garcial (at) atos.net>
+F: plugins/multipath/
+
+Simple Cherish-Urgency scheduling plugin:
+M: Miquel Tarzan <miquel.tarzan (at) i2cat.net>
+F: plugins/cherish-urgency/
 
 User space: librina
 -------------------
@@ -227,16 +237,17 @@ F: librina/src/ipc-*
 
 CDAP
 M: Bernat Gaston <bernat.gaston (at) i2cat.net>
-F: librina/include/librina/cdap*
-F: librina/src/cdap*
+F: librina/include/librina/cdap_rib_structures.h
+F: librina/include/librina/cdap_v2.h
+F: librina/src/cdap_v2.cc
 F: librina/src/CDAP.proto
 F: librina/test/*cdap*
 
 RIB
 M: Marc Sune <marc.sune (at) bisdn.de>
-F: librina/include/librina/rib*
-F: librina/src/*rib*
-F: librina/test/*rib*
+F: librina/include/librina/rib_v2.h
+F: librina/src/rib_v2.cc
+F: librina/test/test-rib_v2.cc
 
 SDK
 M: Vincenzo Maffione <v.maffione (at) nextworks.it>

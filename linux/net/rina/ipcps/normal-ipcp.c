@@ -38,16 +38,14 @@
 #include "du.h"
 #include "kfa.h"
 #include "efcp.h"
+#include "dtp.h"
+#include "dtcp.h"
 #include "rmt.h"
+#include "sdup.h"
 #include "efcp-utils.h"
 
 /*  FIXME: To be removed ABSOLUTELY */
 extern struct kipcm * default_kipcm;
-
-struct normal_info {
-        struct name * name;
-        struct name * dif_name;
-};
 
 enum mgmt_state {
         MGMT_DATA_READY,
@@ -66,12 +64,14 @@ struct ipcp_instance_data {
         /* FIXME: add missing needed attributes */
         ipc_process_id_t        id;
         u32                     nl_port;
+        struct name             name;
+        struct name             dif_name;
         struct list_head        flows;
-        struct normal_info *    info;
         /*  FIXME: Remove it as soon as the kipcm_kfa gets removed*/
         struct kfa *            kfa;
         struct efcp_container * efcpc;
         struct rmt *            rmt;
+        struct sdup *           sdup;
         address_t               address;
         struct mgmt_data *      mgmt_data;
         spinlock_t              lock;
@@ -99,6 +99,33 @@ struct normal_flow {
         struct ipcp_instance * user_ipcp;
         struct list_head       list;
 };
+
+static ssize_t normal_ipcp_attr_show(struct robject *        robj,
+                         	     struct robj_attribute * attr,
+                                     char *                  buf)
+{
+	struct ipcp_instance * instance;
+
+	instance = container_of(robj, struct ipcp_instance, robj);
+	if (!instance || !instance->data)
+		return 0;
+
+	if (strcmp(robject_attr_name(attr), "name") == 0)
+		return sprintf(buf, "%s\n",
+			name_tostring(&instance->data->name));
+	if (strcmp(robject_attr_name(attr), "dif") == 0)
+		return sprintf(buf, "%s\n",
+			name_tostring(&instance->data->dif_name));
+	if (strcmp(robject_attr_name(attr), "address") == 0)
+		return sprintf(buf, "%u\n", instance->data->address);
+	if (strcmp(robject_attr_name(attr), "type") == 0)
+		return sprintf(buf, "normal\n");
+
+	return 0;
+}
+RINA_SYSFS_OPS(normal_ipcp);
+RINA_ATTRS(normal_ipcp, name, type, dif, address);
+RINA_KTYPE(normal_ipcp);
 
 static struct normal_flow * find_flow(struct ipcp_instance_data * data,
                                       port_id_t                   port_id)
@@ -621,8 +648,12 @@ static int normal_assign_to_dif(struct ipcp_instance_data * data,
         struct sdup_config * sdup_config;
         struct rmt_config *  rmt_config;
 
-        data->info->dif_name = name_dup(dif_information->dif_name);
-        data->address        = dif_information->configuration->address;
+        if (name_cpy(dif_information->dif_name, &data->dif_name)) {
+                LOG_ERR("%s: name_cpy() failed", __func__);
+                return -1;
+        }
+
+        data->address  = dif_information->configuration->address;
 
         efcp_config = dif_information->configuration->efcp_config;
 
@@ -645,15 +676,10 @@ static int normal_assign_to_dif(struct ipcp_instance_data * data,
         	return -1;
         }
 
-        sdup_config = dif_information->configuration->sdup_config;
-        if (!sdup_config) {
-        	LOG_INFO("No SDU protection config specified, using default");
-        } else {
-        	rmt_sdup_config_set(data->rmt, sdup_config);
-        }
-
-        if (rmt_address_set(data->rmt, data->address))
+        if (rmt_address_set(data->rmt, data->address)) {
+		LOG_ERR("Could not set local Address to RMT");
                 return -1;
+	}
 
         if (rmt_dt_cons_set(data->rmt, dt_cons_dup(efcp_config->dt_cons))) {
                 LOG_ERR("Could not set dt_cons in RMT");
@@ -662,7 +688,16 @@ static int normal_assign_to_dif(struct ipcp_instance_data * data,
 
         if (rmt_config_set(data-> rmt, rmt_config)) {
                 LOG_ERR("Could not set RMT conf");
+		return -1;
         }
+
+	sdup_config = dif_information->configuration->sdup_config;
+	if (!sdup_config) {
+		LOG_INFO("No SDU protection config specified, using default");
+		sdup_config = sdup_config_create();
+		sdup_config->default_dup_conf = dup_config_entry_create();
+	}
+	sdup_config_set(data->sdup, sdup_config);
 
         return 0;
 }
@@ -948,19 +983,181 @@ static int normal_pff_flush(struct ipcp_instance_data * data)
 static const struct name * normal_ipcp_name(struct ipcp_instance_data * data)
 {
         ASSERT(data);
-        ASSERT(data->info);
-        ASSERT(name_is_ok(data->info->name));
+        ASSERT(name_is_ok(&data->name));
 
-        return data->info->name;
+        return &data->name;
 }
 
 static const struct name * normal_dif_name(struct ipcp_instance_data * data)
 {
         ASSERT(data);
-        ASSERT(data->info);
-        ASSERT(name_is_ok(data->info->dif_name));
+        ASSERT(name_is_ok(&data->dif_name));
 
-        return data->info->dif_name;
+        return &data->dif_name;
+}
+
+typedef const string_t *const_string;
+
+/* Helper function to parse the component id path for EFCP container. */
+static struct efcp *
+efcp_container_parse_component_id(struct ipcp_instance_data * data,
+				  bool assume_port_id,
+				  struct efcp_container * container,
+                                  const_string * path)
+{
+	struct normal_flow *flow;
+        struct efcp * efcp;
+        int xid;
+        size_t cmplen;
+        size_t offset;
+        char numbuf[8];
+        int ret;
+
+        if (!*path) {
+                LOG_ERR("NULL path");
+                return NULL;
+        }
+
+        ps_factory_parse_component_id(*path, &cmplen, &offset);
+        if (cmplen > sizeof(numbuf)-1) {
+                LOG_ERR("Invalid cep-id' %s'", *path);
+                return NULL;
+        }
+
+        memcpy(numbuf, *path, cmplen);
+        numbuf[cmplen] = '\0';
+        ret = kstrtoint(numbuf, 10, &xid);
+        if (ret) {
+                LOG_ERR("Invalid cep-id '%s'", *path);
+                return NULL;
+        }
+
+	if (assume_port_id) {
+		/* Interpret xid as a port-id rather than a cep-id. */
+		flow = find_flow(data, xid);
+		if (!flow) {
+			LOG_ERR("No flow with port-id %d", xid);
+			return NULL;
+		}
+		xid = flow->active;
+	}
+
+        efcp = efcp_imap_find(efcp_container_get_instances(container), xid);
+        if (!efcp) {
+                LOG_ERR("No connection with cep-id %d", xid);
+                return NULL;
+        }
+
+        *path += offset;
+
+        return efcp;
+
+}
+
+static int efcp_select_policy_set(struct efcp * efcp,
+                                  const string_t * path,
+                                  const string_t * ps_name)
+{
+        size_t cmplen;
+        size_t offset;
+
+        ps_factory_parse_component_id(path, &cmplen, &offset);
+
+        if (cmplen && strncmp(path, "dtp", cmplen) == 0) {
+                return dtp_select_policy_set(dt_dtp(efcp_dt(efcp)), path + offset,
+                                             ps_name);
+        } else if (cmplen && strncmp(path, "dtcp", cmplen) == 0 && dt_dtcp(efcp_dt(efcp))) {
+                return dtcp_select_policy_set(dt_dtcp(efcp_dt(efcp)), path + offset,
+                                             ps_name);
+        }
+
+        /* Currently there are no policy sets specified for EFCP (strictly
+         * speaking). */
+        LOG_ERR("The selected component does not exist");
+
+        return -1;
+}
+
+static int efcp_container_select_policy_set(struct efcp_container * container,
+					    const string_t * path,
+					    const string_t * ps_name,
+					    struct ipcp_instance_data *data)
+{
+        struct efcp * efcp;
+        const string_t * new_path = path;
+
+        efcp = efcp_container_parse_component_id(data, true, container,
+						 &new_path);
+        if (!efcp) {
+                return -1;
+        }
+
+        return efcp_select_policy_set(efcp, new_path, ps_name);
+}
+
+static int normal_select_policy_set(struct ipcp_instance_data *data,
+                                    const string_t *path,
+                                    const string_t *ps_name)
+{
+        size_t cmplen;
+        size_t offset;
+
+        ps_factory_parse_component_id(path, &cmplen, &offset);
+
+        if (cmplen && strncmp(path, "rmt", cmplen) == 0) {
+                return rmt_select_policy_set(data->rmt, path + offset,
+                                             ps_name);
+        } else if (cmplen && strncmp(path, "efcp", cmplen) == 0) {
+                return efcp_container_select_policy_set(data->efcpc,
+                                                path + offset, ps_name, data);
+        } else {
+                LOG_ERR("The selected component does not exist");
+                return -1;
+        }
+
+        return -1;
+}
+
+static int efcp_set_policy_set_param(struct efcp * efcp,
+                                     const char * path,
+                                     const char * name,
+                                     const char * value)
+{
+        size_t cmplen;
+        size_t offset;
+
+        ps_factory_parse_component_id(path, &cmplen, &offset);
+
+        if (strncmp(path, "dtp", cmplen) == 0) {
+                return dtp_set_policy_set_param(dt_dtp(efcp_dt(efcp)),
+                                        path + offset, name, value);
+        } else if (strncmp(path, "dtcp", cmplen) == 0 && dt_dtcp(efcp_dt(efcp))) {
+                return dtcp_set_policy_set_param(dt_dtcp(efcp_dt(efcp)),
+                                        path + offset, name, value);
+        }
+
+        /* Currently there are no parametric policies specified for EFCP
+         * (strictly speaking). */
+        LOG_ERR("No parametric policies for this EFCP component");
+
+        return -1;
+}
+
+static int efcp_container_set_policy_set_param(struct efcp_container * container,
+                                               const char * path, const char * name,
+					       const char * value,
+					       struct ipcp_instance_data *data)
+{
+
+        struct efcp * efcp;
+        const string_t * new_path = path;
+
+        efcp = efcp_container_parse_component_id(data, true, container, &new_path);
+        if (!efcp) {
+                return -1;
+        }
+
+        return efcp_set_policy_set_param(efcp, new_path, name, value);
 }
 
 static int normal_set_policy_set_param(struct ipcp_instance_data * data,
@@ -971,14 +1168,14 @@ static int normal_set_policy_set_param(struct ipcp_instance_data * data,
         size_t cmplen;
         size_t offset;
 
-        parse_component_id(path, &cmplen, &offset);
+        ps_factory_parse_component_id(path, &cmplen, &offset);
 
         if (strncmp(path, "rmt", cmplen) == 0) {
                 return rmt_set_policy_set_param(data->rmt, path + offset,
                                                 param_name, param_value);
         } else if (strncmp(path, "efcp", cmplen) == 0) {
                 return efcp_container_set_policy_set_param(data->efcpc,
-                                path + offset, param_name, param_value);
+                                path + offset, param_name, param_value, data);
         } else {
                 LOG_ERR("The selected component does not exist");
                 return -1;
@@ -987,40 +1184,13 @@ static int normal_set_policy_set_param(struct ipcp_instance_data * data,
         return -1;
 }
 
-static int normal_select_policy_set(struct ipcp_instance_data *data,
-                                    const string_t *path,
-                                    const string_t *ps_name)
+int normal_update_crypto_state(struct ipcp_instance_data * data,
+			       struct sdup_crypto_state * state,
+		               port_id_t 	      port_id)
 {
-        size_t cmplen;
-        size_t offset;
-
-        parse_component_id(path, &cmplen, &offset);
-
-        if (strncmp(path, "rmt", cmplen) == 0) {
-                return rmt_select_policy_set(data->rmt, path + offset,
-                                             ps_name);
-        } else if (strncmp(path, "efcp", cmplen) == 0) {
-                return efcp_container_select_policy_set(data->efcpc,
-                                                path + offset, ps_name);
-        } else {
-                LOG_ERR("The selected component does not exist");
-                return -1;
-        }
-
-        return -1;
-}
-
-int normal_enable_encryption(struct ipcp_instance_data * data,
-			     bool 	      enable_encryption,
-		             bool    	      enable_decryption,
-		             struct buffer *  encrypt_key,
-		             port_id_t 	      port_id)
-{
-	return rmt_enable_encryption(data->rmt,
-				     enable_encryption,
-				     enable_decryption,
-				     encrypt_key,
-				     port_id);
+	return sdup_update_crypto_state(data->sdup,
+				        state,
+				        port_id);
 }
 
 static struct ipcp_instance_ops normal_instance_ops = {
@@ -1066,7 +1236,7 @@ static struct ipcp_instance_ops normal_instance_ops = {
 
         .enable_write              = enable_write,
         .disable_write             = disable_write,
-        .enable_encryption         = normal_enable_encryption,
+        .update_crypto_state       = normal_update_crypto_state,
         .dif_name		   = normal_dif_name
 };
 
@@ -1137,7 +1307,16 @@ static struct ipcp_instance * normal_create(struct ipcp_factory_data * data,
                 return NULL;
         }
 
-        instance->ops  = &normal_instance_ops;
+        instance->ops = &normal_instance_ops;
+
+	if (robject_rset_init_and_add(&instance->robj,
+				      &normal_ipcp_rtype,
+				      kipcm_rset(default_kipcm),
+				      "%u",
+				      id)) {
+		rkfree(instance);
+		return NULL;
+	}
 
         /* FIXME: Rearrange the mess creating the data */
         instance->data = rkzalloc(sizeof(struct ipcp_instance_data),
@@ -1151,21 +1330,9 @@ static struct ipcp_instance * normal_create(struct ipcp_factory_data * data,
 
         instance->data->id      = id;
         instance->data->nl_port = data->nl_port;
-        instance->data->info    = rkzalloc(sizeof(struct normal_info),
-                                           GFP_KERNEL);
-        if (!instance->data->info) {
-                LOG_ERR("Could not allocate memory for normal ipcp info");
-                rkfree(instance->data);
-                rkfree(instance);
-                return NULL;
-        }
 
-        /* FIXME: This (whole) function has to be rehersed HEAVILY */
-
-        instance->data->info->name = name_dup(name);
-        if (!instance->data->info->name) {
+        if (name_cpy(name, &instance->data->name)) {
                 LOG_ERR("Failed creation of ipc name");
-                rkfree(instance->data->info);
                 rkfree(instance->data);
                 rkfree(instance);
                 return NULL;
@@ -1174,22 +1341,31 @@ static struct ipcp_instance * normal_create(struct ipcp_factory_data * data,
         /*  FIXME: Remove as soon as the kipcm_kfa gets removed */
         instance->data->kfa = kipcm_kfa(default_kipcm);
 
-        instance->data->efcpc = efcp_container_create(instance->data->kfa);
+        instance->data->efcpc = efcp_container_create(instance->data->kfa,
+						      &instance->robj);
         if (!instance->data->efcpc) {
-                name_destroy(instance->data->info->name);
-                rkfree(instance->data->info);
                 rkfree(instance->data);
                 rkfree(instance);
                 return NULL;
         }
-        instance->data->rmt = rmt_create(instance,
-                                         instance->data->kfa,
-                                         instance->data->efcpc);
+
+        instance->data->sdup = sdup_create(instance);
+        if (!instance->data->sdup) {
+                LOG_ERR("Failed creation of SDUP instance");
+                efcp_container_destroy(instance->data->efcpc);
+                rkfree(instance->data);
+                rkfree(instance);
+                return NULL;
+        }
+
+        instance->data->rmt = rmt_create(instance->data->kfa,
+                                         instance->data->efcpc,
+					 instance->data->sdup,
+					 &instance->robj);
         if (!instance->data->rmt) {
                 LOG_ERR("Failed creation of RMT instance");
+		sdup_destroy(instance->data->sdup);
                 efcp_container_destroy(instance->data->efcpc);
-                name_destroy(instance->data->info->name);
-                rkfree(instance->data->info);
                 rkfree(instance->data);
                 rkfree(instance);
                 return NULL;
@@ -1198,9 +1374,8 @@ static struct ipcp_instance * normal_create(struct ipcp_factory_data * data,
         if (efcp_bind_rmt(instance->data->efcpc, instance->data->rmt)) {
                 LOG_ERR("Failed binding of RMT and EFCPC");
                 rmt_destroy(instance->data->rmt);
+		sdup_destroy(instance->data->sdup);
                 efcp_container_destroy(instance->data->efcpc);
-                name_destroy(instance->data->info->name);
-                rkfree(instance->data->info);
                 rkfree(instance->data);
                 rkfree(instance);
                 return NULL;
@@ -1210,9 +1385,8 @@ static struct ipcp_instance * normal_create(struct ipcp_factory_data * data,
         if (!instance->data->mgmt_data) {
                 LOG_ERR("Failed creation of management data");
                 rmt_destroy(instance->data->rmt);
+		sdup_destroy(instance->data->sdup);
                 efcp_container_destroy(instance->data->efcpc);
-                name_destroy(instance->data->info->name);
-                rkfree(instance->data->info);
                 rkfree(instance->data);
                 rkfree(instance);
                 return NULL;
@@ -1266,14 +1440,9 @@ static int normal_destroy(struct ipcp_factory_data * data,
                 return -1;
         }
 
-        if (tmp->info) {
-                if (tmp->info->dif_name)
-                        name_destroy(tmp->info->dif_name);
-                if (tmp->info->name)
-                        name_destroy(tmp->info->name);
-                rkfree(tmp->info);
-        }
+        robject_del(&instance->robj);
 
+        sdup_destroy(tmp->sdup);
         efcp_container_destroy(tmp->efcpc);
         rmt_destroy(tmp->rmt);
         mgmt_data_destroy(tmp->mgmt_data);

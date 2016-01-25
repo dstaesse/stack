@@ -4,19 +4,20 @@
  *    Marc Sune	     <marc.sune (at) bisdn.de>
  *    Bernat Gaston	 <bernat.gaston@i2cat.net>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA  02110-1301  USA
  */
 
 #include "flowm.h"
@@ -267,13 +268,16 @@ void ActiveWorker::allocateFlow()
 							   rrevent->difName);
 		LOG_INFO("[w:%u] Flow allocated, port id = %d", id, flow_.portId);
 	}
+
+	// Delete the event
+	delete event;
 }
 
 // Flow active worker
 void* ActiveWorker::run(void* param)
 {
 
-	char buffer[max_sdu_size_in_bytes];
+	unsigned char *buffer;
 	rina::cdap_rib::ep_info_t src;
 	rina::cdap_rib::ep_info_t dest;
 	int bytes_read = 0;
@@ -328,18 +332,21 @@ void* ActiveWorker::run(void* param)
 
 			//Recover the response
 			//TODO: add support for other
+			buffer = new unsigned char[max_sdu_size_in_bytes];
 			try{
 				bytes_read = rina::ipcManager->readSDU(port_id, buffer,
 							max_sdu_size_in_bytes);
 			}catch(rina::ReadSDUException &e){
 				LOG_ERR("Cannot read from flow with port id: %u anymore", port_id);
+				delete[] buffer;
 			}
 
-			rina::cdap_rib::SerializedObject message;
+			rina::ser_obj_t message;
+
 			message.message_ = buffer;
 			message.size_ = bytes_read;
 
-			//Instruct CDAP provider to process the message
+			//Instruct CDAP provider to process the CACEP message
 			try{
 				rina::cdap::getProvider()->process_message(message,
 							port_id);
@@ -351,26 +358,28 @@ void* ActiveWorker::run(void* param)
 
 			//I/O loop
 			while(true) {
+				buffer = new unsigned char[max_sdu_size_in_bytes];
 				try{
 					bytes_read = rina::ipcManager->readSDU(port_id,
 									buffer,
 									max_sdu_size_in_bytes);
 				}catch(rina::ReadSDUException &e){
 					LOG_ERR("Cannot read from flow with port id: %u anymore", port_id);
+					delete[] buffer;
 				}
 
-				rina::cdap_rib::SerializedObject message;
+				rina::ser_obj_t message;
 				message.message_ = buffer;
 				message.size_ = bytes_read;
 
-				//Instruct CDAP provider to process the message
+				//Instruct CDAP provider to process the RIB operation message
 				try{
 					rina::cdap::getProvider()->process_message(
 									message,
 									port_id);
 				}catch(rina::WriteSDUException &e){
 					LOG_ERR("Cannot write to flow with port id: %u anymore", port_id);
-				}catch(rina::CDAPException &e){
+				}catch(rina::cdap::CDAPException &e){
 					LOG_ERR("Error processing message: %s", e.what());
 				}
 			}
@@ -385,25 +394,22 @@ void* ActiveWorker::run(void* param)
 
 void FlowManager::process_fwd_cdap_msg_response(rina::FwdCDAPMsgEvent* fwdevent)
 {
-	rina::WireMessageProviderInterface * wmpi;
-	const rina::CDAPMessage *rmsg;
+	rina::cdap::CDAPMessage rmsg;
 
 	LOG_DBG("Received forwarded CDAP response, result %d",
 			fwdevent->result);
 
-	if (fwdevent->sermsg.empty()) {
+	if (fwdevent->sermsg.message_ == 0) {
 		LOG_DBG("Received empty delegated CDAP response");
 		return;
 	}
 
-	wmpi = rina::WireMessageProviderFactory().createWireMessageProvider();
-	rmsg = wmpi->deserializeMessage(fwdevent->sermsg);
+	rina::cdap::getProvider()->get_session_manager()->decodeCDAPMessage(fwdevent->sermsg,
+									    rmsg);
 
-	LOG_DBG("Delegated CDAP response: %s, value %p", rmsg->to_string().c_str(),
-			rmsg->get_obj_value());
-
-	delete wmpi;
-	delete rmsg;
+	LOG_DBG("Delegated CDAP response: %s, value %p",
+		rmsg.to_string().c_str(),
+		rmsg.obj_value_.message_);
 }
 
 //Process an event coming from librina
@@ -521,6 +527,12 @@ FlowManager::~FlowManager()
 
 		//Remove
 		it = next;
+	}
+
+	// Delete pending elements
+	for (std::map<unsigned int, rina::IPCEvent*>::const_iterator it = pending_events.begin();
+			it != pending_events.end(); it++){
+		delete it->second;
 	}
 
 }

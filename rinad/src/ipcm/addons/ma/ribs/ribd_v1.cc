@@ -3,19 +3,20 @@
  *
  *    Bernat Gaston         <bernat.gaston@i2cat.net>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA  02110-1301  USA
  */
 
 #include "ribd_v1.h"
@@ -34,7 +35,7 @@ namespace rinad {
 namespace mad {
 namespace rib_v1 {
 
-const std::string IPCProcesses_name = "/computingSystemID=1/processingSystemID=1/kernelApplicationProcess/osApplicationProcess/ipcProcesses";
+const char IPCP_NAME[] = "/computingSystemID=1/processingSystemID=1/kernelApplicationProcess/osApplicationProcess/ipcProcesses";
 // Create the schema
 void createSchema(void){
 	rina::cdap_rib::vers_info_t vers;
@@ -45,6 +46,8 @@ void createSchema(void){
 
 	//Create schema
 	ribd->createSchema(vers);
+
+	const std::string IPCProcesses_name = IPCP_NAME;
 
 	// Create callbacks
 	ribd->addCreateCallbackSchema(vers, "IPCProcess", IPCProcesses_name, IPCPObj::create_cb);
@@ -85,6 +88,7 @@ rina::rib::rib_handle_t createRIB(void){
 		tmp = new rina::rib::RIBObj("OSApplicationProcess");
 		ribd->addObjRIB(rib, "/computingSystemID=1/processingSystemID=1/kernelApplicationProcess/osApplicationProcess", &tmp);
 
+		const std::string IPCProcesses_name = IPCP_NAME;
 		tmp = new rina::rib::RIBObj("IPCProcesses");
 		ribd->addObjRIB(rib, IPCProcesses_name, &tmp);
 

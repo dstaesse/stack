@@ -36,6 +36,7 @@
 #include "dt.h"
 #include "dtp.h"
 #include "rmt.h"
+#include "dtp-ps.h"
 
 #define RTIMER_ENABLED 1
 
@@ -231,30 +232,40 @@ static void enable_write(struct cwq * cwq,
         return;
 }
 
-int dt_pdu_send(struct dt *  dt,
-                struct rmt * rmt,
-                address_t    address,
-                qos_id_t     qos_id,
-                struct pdu * pdu)
+static bool can_deliver(struct dtp * dtp, struct dtcp * dtcp)
 {
-        struct efcp * efcp;
+        bool to_ret = false, w_ret = false, r_ret = false;
+        bool is_wb, is_rb;
+        struct dtp_ps * ps;
 
-        if (!dt)
-                return -1;
+        is_wb = dtcp_window_based_fctrl(dtcp_config_get(dtcp));
+        is_rb = dtcp_rate_based_fctrl(dtcp_config_get(dtcp));
 
-        efcp = dt_efcp(dt);
-        if (!efcp)
-                return -1;
+        if (is_wb)
+                w_ret = (dtp_sv_max_seq_nr_sent(dtp) < dtcp_snd_rt_win(dtcp));
 
-        return common_efcp_pdu_send(efcp, rmt, address, qos_id, pdu);
+	if (is_rb)
+                r_ret = !dtcp_rate_exceeded(dtcp, 0);
+
+        LOG_DBG("Can cwq still deliver something, win: %d, rate: %d",
+        	w_ret, r_ret);
+
+        to_ret = (w_ret || r_ret);
+
+        if ((is_wb && is_rb) && (w_ret != r_ret)) {
+        	LOG_DBG("Delivering conflict...");
+                rcu_read_lock();
+                ps = dtp_ps_get(dtp);
+                to_ret = ps->reconcile_flow_conflict(ps);
+                rcu_read_unlock();
+        }
+
+        return to_ret;
 }
-EXPORT_SYMBOL(dt_pdu_send);
 
 void cwq_deliver(struct cwq * queue,
                  struct dt *  dt,
-                 struct rmt * rmt,
-                 address_t    address,
-                 qos_id_t     qos_id)
+                 struct rmt * rmt)
 {
         struct rtxq *           rtxq;
         struct dtcp *           dtcp;
@@ -262,6 +273,10 @@ void cwq_deliver(struct cwq * queue,
         struct pdu  *           tmp;
         bool                    rtx_ctrl;
         bool                    flow_ctrl;
+
+        bool			rate_ctrl = false;
+        int 			sz = 0;
+	uint_t 			sc = 0;
 
         if (!queue)
                 return;
@@ -285,9 +300,12 @@ void cwq_deliver(struct cwq * queue,
         if (!dtp)
                 return;
 
+        if(flow_ctrl) {
+        	rate_ctrl = dtcp_rate_based_fctrl(dtcp_config_get(dtcp));
+        }
+
         spin_lock(&queue->lock);
-        while (!rqueue_is_empty(queue->q) &&
-               (dtp_sv_max_seq_nr_sent(dtp) < dtcp_snd_rt_win(dtcp))) {
+        while (!rqueue_is_empty(queue->q) && can_deliver(dtp, dtcp)) {
                 struct pdu *       pdu;
                 const struct pci * pci;
 
@@ -310,25 +328,62 @@ void cwq_deliver(struct cwq * queue,
                         }
                         rtxq_push_ni(rtxq, tmp);
                 }
+                if(rate_ctrl) {
+                	sz = buffer_length(pdu_buffer_get_ro(pdu));
+			sc = dtcp_sent_itu(dtcp);
+
+			if(sz >= 0) {
+				if (sz + sc >= dtcp_sndr_rate(dtcp)) {
+					dtcp_sent_itu_set(
+						dtcp,
+						dtcp_sndr_rate(dtcp));
+
+					break;
+				} else {
+					dtcp_sent_itu_inc(dtcp, sz);
+				}
+			}
+                }
                 pci = pdu_pci_get_ro(pdu);
                 if (dtp_sv_max_seq_nr_set(dtp,
                                           pci_sequence_number_get(pci)))
                         LOG_ERR("Problems setting sender left window edge");
 
-                dt_pdu_send(dt, rmt, address, qos_id, pdu);
+                dt_pdu_send(dt, rmt, pdu);
         }
         spin_unlock(&queue->lock);
 
         LOG_DBG("CWQ has delivered until %u", dtp_sv_max_seq_nr_sent(dtp));
 
-        if ((dtp_sv_max_seq_nr_sent(dtp) >= dtcp_snd_rt_win(dtcp))) {
-                dt_sv_window_closed_set(dt, true);
+        // Cannot deliver means credit has already been consumed again.
+        if (!can_deliver(dtp, dtcp)) {
+        	if(dtcp_window_based_fctrl(dtcp_config_get(dtcp))) {
+			dt_sv_window_closed_set(dt, true);
+        	}
+
+                if(dtcp_rate_based_fctrl(dtcp_config_get(dtcp))) {
+                	LOG_DBG("rbfc Cannot deliver anymore, closing...");
+                	dtp_sv_rate_fulfiled_set(dtp, true);
+                	dtp_start_rate_timer(dtp, dtcp);
+
+                	// Cannot use anymore that port.
+                	//efcp_disable_write(dt_efcp(dt));
+                }
+
                 enable_write(queue, dt);
                 return;
         }
-        dt_sv_window_closed_set(dt, false);
-        enable_write(queue, dt);
 
+        if(dtcp_window_based_fctrl(dtcp_config_get(dtcp))) {
+        	dt_sv_window_closed_set(dt, false);
+        }
+
+        if(dtcp_rate_based_fctrl(dtcp_config_get(dtcp))) {
+        	//LOG_DBG("rbfc Re-opening the rate mechanism");
+        	dtp_sv_rate_fulfiled_set(dtp, false);
+        }
+
+        enable_write(queue, dt);
         return;
 }
 
@@ -417,6 +472,8 @@ int rtxq_entry_destroy(struct rtxq_entry * entry)
 EXPORT_SYMBOL(rtxq_entry_destroy);
 
 struct rtxqueue {
+	int len;
+	int drop_pdus;
         struct list_head head;
 };
 
@@ -429,6 +486,8 @@ static struct rtxqueue * rtxqueue_create_gfp(gfp_t flags)
                 return NULL;
 
         INIT_LIST_HEAD(&tmp->head);
+	tmp->len = 0;
+	tmp->drop_pdus = 0;
 
         return tmp;
 }
@@ -447,6 +506,7 @@ static int rtxqueue_flush(struct rtxqueue * q)
 
         list_for_each_entry_safe(cur, n, &q->head, next) {
                 rtxq_entry_destroy(cur);
+		q->len --;
         }
 
         return 0;
@@ -480,6 +540,7 @@ static int rtxqueue_entries_ack(struct rtxqueue * q,
                 if (seq < seq_num) {
                         LOG_DBG("Seq num acked: %u", seq);
                         rtxq_entry_destroy(cur);
+			q->len--;
                 } else
                         return 0;
         }
@@ -495,10 +556,19 @@ static int rtxqueue_entries_nack(struct rtxqueue * q,
 {
         struct rtxq_entry * cur, * p;
         struct pdu *        tmp;
+        // Used by rbfc.
+        struct dtp * 	    dtp;
+        struct dtcp *	    dtcp;
+
+        int sz;
+	uint_t sc;
 
         ASSERT(q);
         ASSERT(dt);
         ASSERT(rmt);
+
+        dtp = dt_dtp(dt);
+        dtcp = dt_dtcp(dt);
 
         /*
          * FIXME: this should be change since we are sending in inverse order
@@ -512,14 +582,36 @@ static int rtxqueue_entries_nack(struct rtxqueue * q,
                                 LOG_ERR("Maximum number of rtx has been "
                                         "achieved. Can't maintain QoS");
                                 rtxq_entry_destroy(cur);
+				q->len--;
+				q->drop_pdus++;
                                 continue;
                         }
+			if(dtp &&
+				dtcp &&
+				dtcp_rate_based_fctrl(dtcp_config_get(dtcp))) {
 
+				sz = buffer_length(pdu_buffer_get_ro(cur->pdu));
+				sc = dtcp_sent_itu(dtcp);
+
+				if(sz >= 0) {
+					if (sz + sc >= dtcp_sndr_rate(dtcp)) {
+						dtcp_sent_itu_set(
+							dtcp,
+							dtcp_sndr_rate(dtcp));
+					} else {
+						dtcp_sent_itu_inc(dtcp, sz);
+					}
+				}
+
+				if(dtcp_rate_exceeded(dtcp, 1)) {
+					dtp_sv_rate_fulfiled_set(dtp, true);
+					dtp_start_rate_timer(dtp, dtcp);
+					break;
+				}
+			}
                         tmp = pdu_dup_ni(cur->pdu);
                         if (dt_pdu_send(dt,
                                         rmt,
-                                        pci_destination(pdu_pci_get_ro(tmp)),
-                                        pci_qos_id(pdu_pci_get_ro(tmp)),
                                         tmp))
                                 continue;
                 } else
@@ -566,6 +658,7 @@ static int rtxqueue_push_ni(struct rtxqueue * q, struct pdu * pdu)
 
         if (list_empty(&q->head)) {
                 list_add(&tmp->next, &q->head);
+		q->len++;
                 LOG_DBG("First PDU with seqnum: %u push to rtxq at: %pk",
                         csn, q);
                 return 0;
@@ -583,6 +676,7 @@ static int rtxqueue_push_ni(struct rtxqueue * q, struct pdu * pdu)
         }
         if (csn > psn) {
                 list_add_tail(&tmp->next, &q->head);
+		q->len++;
                 LOG_DBG("Last PDU with seqnum: %u push to rtxq at: %pk",
                         csn, q);
                 return 0;
@@ -597,6 +691,7 @@ static int rtxqueue_push_ni(struct rtxqueue * q, struct pdu * pdu)
                 }
                 if (csn > psn) {
                         list_add(&tmp->next, &cur->next);
+			q->len++;
                         LOG_DBG("Middle PDU with seqnum: %u push to "
                                 "rtxq at: %pk", csn, q);
                         return 0;
@@ -618,10 +713,18 @@ static int rtxqueue_rtx(struct rtxqueue * q,
         struct pdu *        tmp;
         seq_num_t           seq = 0;
         unsigned long       tr_jiffies;
+        // Used by rbfc.
+        struct dtp *        dtp;
+        struct dtcp *	    dtcp;
+        int sz;
+        uint_t sc;
 
         ASSERT(q);
         ASSERT(dt);
         ASSERT(rmt);
+
+        dtp = dt_dtp(dt);
+        dtcp = dt_dtcp(dt);
 
         tr_jiffies = msecs_to_jiffies(tr);
 
@@ -638,13 +741,36 @@ static int rtxqueue_rtx(struct rtxqueue * q,
                                         "achieved for SeqN %u. Can't "
                                         "maintain QoS", seq);
                                 rtxq_entry_destroy(cur);
+				q->len--;
+				q->drop_pdus++;
                                 continue;
+                        }
+                        if(dtp &&
+				dtcp &&
+				dtcp_rate_based_fctrl(dtcp_config_get(dtcp))) {
+
+                        	sz = buffer_length(pdu_buffer_get_ro(cur->pdu));
+				sc = dtcp_sent_itu(dtcp);
+
+				if(sz >= 0) {
+					if (sz + sc >= dtcp_sndr_rate(dtcp)) {
+						dtcp_sent_itu_set(
+							dtcp,
+							dtcp_sndr_rate(dtcp));
+					} else {
+						dtcp_sent_itu_inc(dtcp, sz);
+					}
+				}
+
+				if(dtcp_rate_exceeded(dtcp, 1)) {
+					dtp_sv_rate_fulfiled_set(dtp, true);
+					dtp_start_rate_timer(dtp, dtcp);
+					break;
+				}
                         }
                         tmp = pdu_dup_ni(cur->pdu);
                         if (dt_pdu_send(dt,
                                         rmt,
-                                        pci_destination(pdu_pci_get_ro(tmp)),
-                                        pci_qos_id(pdu_pci_get_ro(tmp)),
                                         tmp))
                                 continue;
                 } else {
@@ -814,6 +940,33 @@ struct rtxq * rtxq_create_ni(struct dt *  dt,
         return tmp;
 }
 
+int rtxq_size(struct rtxq * q)
+{
+        unsigned long       flags;
+	unsigned int ret;
+        if (!q)
+                return -1;
+
+        spin_lock_irqsave(&q->lock, flags);
+        ret = q->queue->len;
+        spin_unlock_irqrestore(&q->lock, flags);
+        return ret;
+}
+EXPORT_SYMBOL(rtxq_size);
+
+int rtxq_drop_pdus(struct rtxq * q)
+{
+        unsigned long       flags;
+	int ret;
+        if (!q)
+                return -1;
+
+        spin_lock_irqsave(&q->lock, flags);
+        ret = q->queue->drop_pdus;
+        spin_unlock_irqrestore(&q->lock, flags);
+        return ret;
+}
+
 struct rtxq_entry * rtxq_entry_peek(struct rtxq * q, seq_num_t sn)
 {
         unsigned long       flags;
@@ -934,11 +1087,9 @@ int rtxq_nack(struct rtxq * q,
         return 0;
 }
 
-int common_efcp_pdu_send(struct efcp * efcp,
-        		 struct rmt *  rmt,
-        	         address_t     address,
-                         qos_id_t      qos_id,
-			 struct pdu *  pdu)
+int dt_pdu_send(struct dt *   dt,
+        	struct rmt *  rmt,
+		struct pdu *  pdu)
 {
         struct pci *	        pci;
 	struct efcp_container * efcpc;
@@ -946,6 +1097,9 @@ int common_efcp_pdu_send(struct efcp * efcp,
 
 	if (!pdu)
 	        return -1;
+
+        if (!dt)
+                return -1;
 
 	pci = pdu_pci_get_rw(pdu);
 	if (!pci)
@@ -962,7 +1116,7 @@ int common_efcp_pdu_send(struct efcp * efcp,
 
 	/* Local flow case */
 	dest_cep_id = pci_cep_destination(pci);
-	efcpc = efcp_container_get(efcp);
+	efcpc = efcp_container_get(dt_efcp(dt));
 	if (!efcpc) {
 	        LOG_ERR("Could not retrieve the EFCP container in"
 	        "loopback operation");
@@ -976,4 +1130,4 @@ int common_efcp_pdu_send(struct efcp * efcp,
 
 	return 0;
 }
-EXPORT_SYMBOL(common_efcp_pdu_send);
+EXPORT_SYMBOL(dt_pdu_send);

@@ -30,6 +30,7 @@ ipcp_LDFLAGS = -Wl,--export-dynamic
 ipcp_SOURCES  =						\
 	main.cc						\
 	components.cc		components.h		\
+	utils.cc		utils.h			\
 	rib-daemon.cc		rib-daemon.h		\
 	enrollment-task.cc	enrollment-task.h	\
 	namespace-manager.cc	namespace-manager.h	\
@@ -39,15 +40,23 @@ ipcp_SOURCES  =						\
 	routing.cc                      \
 	ipc-process.cc          ipc-process.h
 
+ipcpheadersdir = $(includedir)/rinad/ipcp
+ipcpheaders_HEADERS = components.h		\
+		ipcp-logging.h
+
 testsCPPFLAGS = $(COMMONCPPFLAGS)
 testsLIBS     = $(COMMONLIBS)
 
 test_encoders_SOURCES  =			\
 	test-encoders.cc			\
-	components.cc	     components.h	\
-	rib-daemon.cc        rib-daemon.h	\
-	flow-allocator.cc    flow-allocator.h	\
-	enrollment-task.cc   enrollment-task.h	
+	components.cc	   components.h \
+	ipc-process.cc	   ipc-process.h \
+	namespace-manager.cc namespace-manager.h \
+	flow-allocator.cc    flow-allocator.h \
+	enrollment-task.cc    enrollment-task.h \
+	resource-allocator.cc    resource-allocator.h \
+	rib-daemon.h	   rib-daemon.cc \
+	routing.cc          security-manager.cc
 test_encoders_CPPFLAGS = $(testsCPPFLAGS)
 test_encoders_LDADD    = $(testsLIBS)
 

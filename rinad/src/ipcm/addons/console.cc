@@ -5,19 +5,20 @@
  *    Marc Sune             <marc.sune (at) bisdn.de>
  *    Eduard Grasa          <eduard.grasa@i2cat.net>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA  02110-1301  USA
  */
 
 #include <cstdlib>
@@ -145,7 +146,7 @@ IPCMConsole::IPCMConsole(const unsigned int port_) :
 	commands_map["read-ipcp-ribobj"] =
 			ConsoleCmdInfo(&IPCMConsole::read_ipcp_ribobj,
 				"USAGE: read-ipcp-ribobj <ipcp-id> <object-class> "
-				"<object-name>");
+				"<object-name> <scope>");
 	commands_map["show-catalog"] =
 			ConsoleCmdInfo(&IPCMConsole::show_catalog,
 				"USAGE: show-catalog [<component-name>]");
@@ -825,8 +826,9 @@ int IPCMConsole::read_ipcp_ribobj(std::vector<std::string>& args)
 {
 	Promise promise;
 	int ipcp_id;
+	int scope;
 
-	if (args.size() != 4) {
+	if (args.size() != 5) {
 		outstream << commands_map[args[0]].usage << endl;
 		return CMDRETCONT;
 	}
@@ -836,13 +838,22 @@ int IPCMConsole::read_ipcp_ribobj(std::vector<std::string>& args)
 		return CMDRETCONT;
 	}
 
+	if (string2int(args[4], scope)){
+		outstream << "Invalid scope" << endl;
+		return CMDRETCONT;
+	}
+
 	if (!IPCManager->ipcp_exists(ipcp_id)) {
 		outstream << "No such IPC process id" << endl;
 		return CMDRETCONT;
 	}
 
-	if (IPCManager->read_ipcp_ribobj(this, &promise, ipcp_id,
-					 args[2], args[3]) == IPCM_FAILURE ||
+	if (IPCManager->read_ipcp_ribobj(this,
+					 &promise,
+					 ipcp_id,
+					 args[2],
+					 args[3],
+					 scope) == IPCM_FAILURE ||
 					 promise.wait() != IPCM_SUCCESS) {
 		outstream << "Error occured while forwarding CDAP message to IPCP" << endl;
 	} else {

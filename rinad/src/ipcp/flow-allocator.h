@@ -4,19 +4,20 @@
  *    Bernat Gaston <bernat.gaston@i2cat.net>
  *    Eduard Grasa <eduard.grasa@i2cat.net>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA  02110-1301  USA
  */
 
 #ifndef IPCP_FLOW_ALLOCATOR_HH
@@ -30,8 +31,8 @@
 namespace rinad {
 
 /// Flow Allocator Instance Interface
-class IFlowAllocatorInstance : public rina::BaseCDAPResponseMessageHandler,
-							   public rina::ApplicationEntityInstance {
+class IFlowAllocatorInstance : public rina::rib::RIBOpsRespHandler,
+	public rina::ApplicationEntityInstance {
 public:
 	IFlowAllocatorInstance(const std::string& instance_id) :
 		rina::ApplicationEntityInstance(instance_id) { };
@@ -45,7 +46,7 @@ public:
 
 	/// Return the Flow object associated to this Flow Allocator Instance
 	/// @return
-	virtual Flow * get_flow() const = 0;
+	virtual configs::Flow * get_flow() const = 0;
 
 	/// True if FAI is no longer operative, false otherwise
 	virtual bool isFinished() const = 0;
@@ -73,7 +74,7 @@ public:
 	/// @param portId the destination portid as decided by the Flow allocator
 	/// @param requestMessate the CDAP request message
 	/// @param underlyingPortId the port id to reply later on
-	virtual void createFlowRequestMessageReceived(Flow * flow, const std::string& object_name,
+	virtual void createFlowRequestMessageReceived(configs::Flow* flow, const std::string& object_name,
 						      int invoke_id) = 0;
 
 	/// When the FAI gets a Allocate_Response from the destination application,
@@ -118,56 +119,134 @@ public:
 	virtual unsigned int get_allocate_response_message_handle() const = 0;
 	virtual void set_allocate_response_message_handle(
 			unsigned int allocate_response_message_handle) = 0;
+	virtual void sync_with_kernel() = 0;
 };
 
 /// Representation of a flow object in the RIB
-class FlowRIBObject: public SimpleSetMemberIPCPRIBObject {
+class FlowRIBObject: public IPCPRIBObj {
 public:
-	FlowRIBObject(IPCProcess * ipc_process, const std::string& object_name,
-			const std::string& object_class,
-			IFlowAllocatorInstance * flow_allocator_instance);
-	void remoteDeleteObject(int invoke_id, rina::CDAPSessionDescriptor * session_descriptor);
-	std::string get_displayable_value();
+	FlowRIBObject(IPCProcess * ipc_process,
+		      IFlowAllocatorInstance * flow_allocator_instance);
+	const std::string get_displayable_value() const;
+
+	const std::string& get_class() const {
+		return class_name;
+	};
+
+	void read(const rina::cdap_rib::con_handle_t &con,
+		  const std::string& fqn,
+		  const std::string& class_,
+		  const rina::cdap_rib::filt_info_t &filt,
+		  const int invoke_id,
+		  rina::cdap_rib::obj_info_t &obj_reply,
+		  rina::cdap_rib::res_info_t& res);
+
+	bool delete_(const rina::cdap_rib::con_handle_t &con,
+		     const std::string& fqn,
+		     const std::string& class_,
+		     const rina::cdap_rib::filt_info_t &filt,
+		     const int invoke_id,
+		     rina::cdap_rib::res_info_t& res);
+
+	static void create_cb(const rina::rib::rib_handle_t rib,
+			      const rina::cdap_rib::con_handle_t &con,
+			      const std::string& fqn,
+			      const std::string& class_,
+			      const rina::cdap_rib::filt_info_t &filt,
+			      const int invoke_id,
+			      const rina::ser_obj_t &obj_req,
+			      rina::ser_obj_t &obj_reply,
+			      rina::cdap_rib::res_info_t& res);
+
+	const static std::string class_name;
+	const static std::string object_name_prefix;
 
 private:
 	IFlowAllocatorInstance * flow_allocator_instance_;
 };
 
 /// Representation of a set of Flow objects in the RIB
-class FlowSetRIBObject: public BaseIPCPRIBObject {
+class FlowsRIBObject: public IPCPRIBObj {
 public:
-	FlowSetRIBObject(IPCProcess * ipc_process, IFlowAllocator * flow_allocator);
-	void remoteCreateObject(void * object_value, const std::string& object_name,
-			int invoke_id, rina::CDAPSessionDescriptor * session_descriptor);
-	using rina::BaseRIBObject::createObject;
-	void createObject(const std::string& objectClass,
-			const std::string& objectName, const void* objectValue);
-	const void* get_value() const;
+	FlowsRIBObject(IPCProcess * ipc_process,
+		       IFlowAllocator * flow_allocator);
 
+	const std::string& get_class() const {
+		return class_name;
+	};
+
+	const static std::string class_name;
+	const static std::string object_name;
 private:
 	IFlowAllocator * flow_allocator_;
 };
 
-class QoSCubeRIBObject: public SimpleSetMemberIPCPRIBObject {
+/// Representation of a set of Connection objects in the RIB
+class ConnectionsRIBObj: public IPCPRIBObj {
 public:
-	QoSCubeRIBObject(IPCProcess* ipc_process,
-			const std::string& object_class,
-			const std::string& object_name,
-			const rina::QoSCube* cube);
-	std::string get_displayable_value();
+	ConnectionsRIBObj(IPCProcess * ipc_process,
+		       IFlowAllocator * flow_allocator);
+
+	const std::string& get_class() const {
+		return class_name;
+	};
+
+	const static std::string class_name;
+	const static std::string object_name;
+private:
+	IFlowAllocator * flow_allocator_;
 };
 
-/// Representation of a set of QoS cubes in the RIB
-class QoSCubeSetRIBObject: public BaseIPCPRIBObject {
+/// Representation of a connection object in the RIB
+class ConnectionRIBObject: public IPCPRIBObj {
 public:
-	QoSCubeSetRIBObject(IPCProcess * ipc_process);
-	void remoteCreateObject(void * object_value, const std::string& object_name,
-			int invoke_id, rina::CDAPSessionDescriptor * session_descriptor);
-	using rina::BaseRIBObject::createObject;
-	void createObject(const std::string& objectClass,
-			const std::string& objectName, const void* objectValue);
-	void deleteObject(const void* objectValue);
-	const void* get_value() const;
+	ConnectionRIBObject(IPCProcess * ipc_process,
+			    IFlowAllocatorInstance * fai);
+	const std::string get_displayable_value() const;
+
+	const std::string& get_class() const {
+		return class_name;
+	};
+
+	void read(const rina::cdap_rib::con_handle_t &con,
+		  const std::string& fqn,
+		  const std::string& class_,
+		  const rina::cdap_rib::filt_info_t &filt,
+		  const int invoke_id,
+		  rina::cdap_rib::obj_info_t &obj_reply,
+		  rina::cdap_rib::res_info_t& res);
+
+	const static std::string class_name;
+	const static std::string object_name_prefix;
+
+private:
+	IFlowAllocatorInstance * fai;
+};
+
+/// Representation of a connection object in the RIB
+class DTCPRIBObject: public IPCPRIBObj {
+public:
+	DTCPRIBObject(IPCProcess * ipc_process,
+		      IFlowAllocatorInstance * fai);
+	const std::string get_displayable_value() const;
+
+	const std::string& get_class() const {
+		return class_name;
+	};
+
+	void read(const rina::cdap_rib::con_handle_t &con,
+		  const std::string& fqn,
+		  const std::string& class_,
+		  const rina::cdap_rib::filt_info_t &filt,
+		  const int invoke_id,
+		  rina::cdap_rib::obj_info_t &obj_reply,
+		  rina::cdap_rib::res_info_t& res);
+
+	const static std::string class_name;
+	const static std::string object_name_suffix;
+
+private:
+	IFlowAllocatorInstance * fai;
 };
 
 /// Implementation of the Flow Allocator component
@@ -178,7 +257,7 @@ public:
 	IFlowAllocatorInstance * getFAI(int portId);
 	void set_application_process(rina::ApplicationProcess * ap);
 	void set_dif_configuration(const rina::DIFConfiguration& dif_configuration);
-	void createFlowRequestMessageReceived(Flow * flow,
+	void createFlowRequestMessageReceived(configs::Flow * flow,
 					      const std::string& object_name,
 					      int invoke_id);
 	void submitAllocateRequest(rina::FlowRequestEvent& flowRequestEvent);
@@ -191,16 +270,14 @@ public:
 			const rina::UpdateConnectionResponseEvent& event);
 	void submitDeallocate(const rina::FlowDeallocateRequestEvent& event);
 	void removeFlowAllocatorInstance(int portId);
+	void sync_with_kernel();
 
         // Plugin support
-	std::list<rina::QoSCube*> getQoSCubes();
-        Flow * createFlow() { return new Flow(); }
-        void destroyFlow(Flow *flow) { if (flow) delete flow; }
+        configs::Flow* createFlow() { return new configs::Flow(); }
+        void destroyFlow(configs::Flow* flow) { if (flow) delete flow; }
 
 private:
 	IPCPRIBDaemon * rib_daemon_;
-	rina::CDAPSessionManagerInterface * cdap_session_manager_;
-	rina::IMasterEncoder * encoder_;
 	INamespaceManager * namespace_manager_;
 
 	/// Create initial RIB objects
@@ -226,16 +303,13 @@ public:
 	};
 
 	FlowAllocatorInstance(IPCProcess * ipc_process,
-			IFlowAllocator * flow_allocator,
-			rina::CDAPSessionManagerInterface * cdap_session_manager,
-			int port_id, const std::string& instance_id);
-	FlowAllocatorInstance(IPCProcess * ipc_process,
-			IFlowAllocator * flow_allocator, int port_id,
-			const std::string& instance_id);
+			      IFlowAllocator * flow_allocator,
+			      int port_id,
+			      const std::string& instance_id);
 	~FlowAllocatorInstance();
 	void set_application_entity(rina::ApplicationEntity * ae);
 	int get_port_id() const;
-	Flow * get_flow() const;
+	configs::Flow * get_flow() const;
 	bool isFinished() const;
 	unsigned int get_allocate_response_message_handle() const;
 	void set_allocate_response_message_handle(
@@ -243,7 +317,7 @@ public:
 	void submitAllocateRequest(const rina::FlowRequestEvent& event);
 	void processCreateConnectionResponseEvent(
 			const rina::CreateConnectionResponseEvent& event);
-	void createFlowRequestMessageReceived(Flow * flow,
+	void createFlowRequestMessageReceived(configs::Flow * flow,
 					      const std::string& object_name,
 					      int invoke_id);
 	void processCreateConnectionResultEvent(
@@ -268,23 +342,26 @@ public:
 	/// with this connection-endpoint-id to the requesting Application and invokes a
 	/// Allocate_Request.submit primitive to notify the requesting Application that its allocation
 	/// request has been satisfied.
-	void createResponse(int result, const std::string& result_reason,
-			void * object_value, rina::CDAPSessionDescriptor * session_descriptor);
+	void remoteCreateResult(const rina::cdap_rib::con_handle_t &con,
+				const rina::cdap_rib::obj_info_t &obj,
+				const rina::cdap_rib::res_info_t &res);
+
+	void sync_with_kernel();
 
 private:
 
-  void initialize(IPCProcess * ipc_process, IFlowAllocator * flow_allocator,
-      int port_id);
-  void replyToIPCManager(rina::FlowRequestEvent & event, int result);
-  void releasePortId();
+	void initialize(IPCProcess * ipc_process,
+			IFlowAllocator * flow_allocator,
+			int port_id);
+	void replyToIPCManager(rina::FlowRequestEvent & event,
+			       int result);
+	void releasePortId();
 
-  /// Release the port-id, unlock and remove the FAI from the FA
-  void releaseUnlockRemove();
+	/// Release the port-id, unlock and remove the FAI from the FA
+	void releaseUnlockRemove();
 
 	IPCProcess * ipc_process_;
 	IFlowAllocator * flow_allocator_;
-	rina::CDAPSessionManagerInterface * cdap_session_manager_;
-	rina::IMasterEncoder * encoder_;
 	IPCPRIBDaemon * rib_daemon_;
 	INamespaceManager * namespace_manager_;
 	IPCPSecurityManager * security_manager_;
@@ -296,7 +373,7 @@ private:
 	int port_id_;
 
 	/// The flow object related to this Flow Allocator Instance
-	Flow * flow_;
+	configs::Flow * flow_;
 
 	/// The event requesting the allocation of the flow
 	rina::FlowRequestEvent flow_request_event_;
@@ -306,8 +383,8 @@ private:
 
 	unsigned int allocate_response_message_handle_;
 	int invoke_id_;
-	rina::Lockable * lock_;
-	rina::Timer * timer_;
+	rina::Lockable lock_;
+	rina::cdap_rib::con_handle_t con;
 };
 
 class TearDownFlowTimerTask: public rina::TimerTask {
@@ -327,31 +404,34 @@ private:
 	bool requestor_;
 };
 
-class DataTransferConstantsRIBObject: public BaseIPCPRIBObject {
+class DataTransferRIBObj: public IPCPRIBObj {
 public:
-	DataTransferConstantsRIBObject(IPCProcess * ipc_process);
-	void remoteReadObject(int invoke_id,
-			rina::CDAPSessionDescriptor * cdapSessionDescriptor);
-	void remoteCreateObject(void * object_value, const std::string& object_name,
-			int invoke_id, rina::CDAPSessionDescriptor * session_descriptor);
-	void createObject(const std::string& objectClass,
-			const std::string& objectName,
-			const void* objectValue);
-	void writeObject(const void* object_value);
-	const void* get_value() const;
-	std::string get_displayable_value();
+	DataTransferRIBObj(IPCProcess * ipc_process);
+	const std::string get_displayable_value() const;
+	const std::string& get_class() const {
+		return class_name;
+	};
 
-private:
-	rina::CDAPSessionManagerInterface * cdap_session_manager_;
+	void read(const rina::cdap_rib::con_handle_t &con,
+		  const std::string& fqn,
+		  const std::string& class_,
+		  const rina::cdap_rib::filt_info_t &filt,
+		  const int invoke_id,
+		  rina::ser_obj_t &obj_reply,
+		  rina::cdap_rib::res_info_t& res);
+
+	void create(const rina::cdap_rib::con_handle_t &con,
+		    const std::string& fqn,
+		    const std::string& class_,
+		    const rina::cdap_rib::filt_info_t &filt,
+		    const int invoke_id,
+		    const rina::ser_obj_t &obj_req,
+		    rina::ser_obj_t &obj_reply,
+		    rina::cdap_rib::res_info_t& res);
+
+	const static std::string class_name;
+	const static std::string object_name;
 };
-
-/// Encoder of the Flow
-class FlowEncoder: public rina::EncoderInterface {
-public:
-	const rina::SerializedObject* encode(const void* object);
-	void* decode(const rina::ObjectValueInterface * object_value) const;
-};
-
 } //namespace rinad
 
 #endif //IPCP_FLOW_ALLOCATOR_HH

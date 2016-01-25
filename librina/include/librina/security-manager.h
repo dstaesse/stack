@@ -28,7 +28,7 @@
 #include <openssl/rsa.h>
 
 #include "librina/application.h"
-#include "librina/rib.h"
+#include "librina/rib_v2.h"
 #include "librina/internal-events.h"
 #include "librina/timer.h"
 #include "librina/configuration.h"
@@ -43,6 +43,7 @@ public:
 
 	PolicyConfig crcPolicy;
 	PolicyConfig ttlPolicy;
+	cdap_rib::con_handle_t con;
 	int id;
 };
 
@@ -60,23 +61,23 @@ public:
 	virtual ~IAuthPolicySet() { };
 
 	/// get auth_policy
-	virtual AuthPolicy get_auth_policy(int session_id,
-					   const AuthSDUProtectionProfile& profile) = 0;
+	virtual cdap_rib::auth_policy_t get_auth_policy(int session_id,
+					   	 	const AuthSDUProtectionProfile& profile) = 0;
 
 	/// initiate the authentication of a remote AE. Any values originated
 	/// from authentication such as sesion keys will be stored in the
 	/// corresponding security context
-	virtual AuthStatus initiate_authentication(const AuthPolicy& auth_policy,
+	virtual AuthStatus initiate_authentication(const cdap_rib::auth_policy_t& auth_policy,
 						   const AuthSDUProtectionProfile& profile,
 						   int session_id) = 0;
 
 	/// Process an incoming CDAP message
-	virtual int process_incoming_message(const CDAPMessage& message,
+	virtual int process_incoming_message(const cdap::CDAPMessage& message,
 					     int session_id) = 0;
 
-	//Called when encryption has been enabled on a certain port, if the call
-	//to the Security Manager's "enable encryption" was asynchronous
-	virtual AuthStatus encryption_enabled(int port_id) = 0;
+	//Called when the crypto state has been updated on a certain port, if the call
+	//to the Security Manager's "update crypto state" was asynchronous
+	virtual AuthStatus crypto_state_updated(int port_id) = 0;
 
 	// The type of authentication policy
 	std::string type;
@@ -89,15 +90,15 @@ public:
 	AuthNonePolicySet(ISecurityManager * sm) :
 		IAuthPolicySet(IAuthPolicySet::AUTH_NONE), sec_man(sm) { };
 	virtual ~AuthNonePolicySet() { };
-	AuthPolicy get_auth_policy(int session_id,
-				   const AuthSDUProtectionProfile& profile);
-	AuthStatus initiate_authentication(const AuthPolicy& auth_policy,
+	cdap_rib::auth_policy_t get_auth_policy(int session_id,
+				   	 	const AuthSDUProtectionProfile& profile);
+	AuthStatus initiate_authentication(const cdap_rib::auth_policy_t& auth_policy,
 					   const AuthSDUProtectionProfile& profile,
 					   int session_id);
-	int process_incoming_message(const CDAPMessage& message, int session_id);
+	int process_incoming_message(const cdap::CDAPMessage& message, int session_id);
 	int set_policy_set_param(const std::string& name,
 	                         const std::string& value);
-	AuthStatus encryption_enabled(int port_id);
+	AuthStatus crypto_state_updated(int port_id);
 
 private:
 	ISecurityManager * sec_man;
@@ -145,19 +146,19 @@ public:
 	static const std::string DEFAULT_CIPHER;
 	static const int DEFAULT_TIMEOUT;
 
-	AuthPasswordPolicySet(IRIBDaemon * ribd,
+	AuthPasswordPolicySet(rib::RIBDaemonProxy * ribd,
 			      ISecurityManager * sec_man);
 	~AuthPasswordPolicySet() { };
-	AuthPolicy get_auth_policy(int session_id,
-				   const AuthSDUProtectionProfile& profile);
-	AuthStatus initiate_authentication(const AuthPolicy& auth_policy,
+	cdap_rib::auth_policy_t get_auth_policy(int session_id,
+				   	        const AuthSDUProtectionProfile& profile);
+	AuthStatus initiate_authentication(const cdap_rib::auth_policy_t& auth_policy,
 					   const AuthSDUProtectionProfile& profile,
 					   int session_id);
-	int process_incoming_message(const CDAPMessage& message,
+	int process_incoming_message(const cdap::CDAPMessage& message,
 				     int session_id);
 	int set_policy_set_param(const std::string& name,
 	                         const std::string& value);
-	AuthStatus encryption_enabled(int port_id);
+	AuthStatus crypto_state_updated(int port_id);
 
 private:
 	std::string * generate_random_challenge(int length);
@@ -170,7 +171,7 @@ private:
 	int process_challenge_reply(const std::string& encrypted_challenge,
 			 	    int session_id);
 
-	IRIBDaemon * rib_daemon;
+	rib::RIBDaemonProxy * rib_daemon;
 	ISecurityManager * sec_man;
 	Timer timer;
 	int timeout;
@@ -199,15 +200,20 @@ public:
 	UcharArray dh_public_key;
 };
 
-class EncryptionProfile {
+class CryptoState {
 public:
-	EncryptionProfile() : port_id(0), enable_encryption(false),
-			enable_decryption(false){ };
+	CryptoState() : port_id(0), enable_crypto_tx(false),
+			enable_crypto_rx(false){ };
 
 	int port_id;
-	bool enable_encryption;
-	bool enable_decryption;
-	UcharArray encrypt_key;
+	bool enable_crypto_tx;
+	bool enable_crypto_rx;
+	UcharArray encrypt_key_tx;
+	UcharArray encrypt_key_rx;
+	UcharArray mac_key_tx;
+	UcharArray mac_key_rx;
+	UcharArray iv_tx;
+	UcharArray iv_rx;
 };
 
 ///Captures all data of the SSHRSA security context
@@ -220,8 +226,8 @@ public:
 	SSH2SecurityContext(int session_id, const AuthSDUProtectionProfile& profile,
 			    SSH2AuthOptions * options);
 	~SSH2SecurityContext();
-	EncryptionProfile get_encryption_profile(bool enable_encryption,
-						 bool enable_decryption);
+	CryptoState get_crypto_state(bool enable_crypto_tx,
+				     bool enable_crypto_rx);
 
 	static const std::string KEY_EXCHANGE_ALGORITHM;
 	static const std::string ENCRYPTION_ALGORITHM;
@@ -321,20 +327,20 @@ public:
 	static const std::string CLIENT_CHALLENGE_REPLY;
 	static const std::string SERVER_CHALLENGE_REPLY;
 
-	AuthSSH2PolicySet(IRIBDaemon * ribd, ISecurityManager * sm);
+	AuthSSH2PolicySet(rib::RIBDaemonProxy * ribd, ISecurityManager * sm);
 	virtual ~AuthSSH2PolicySet();
-	AuthPolicy get_auth_policy(int session_id,
-				   const AuthSDUProtectionProfile& profile);
-	AuthStatus initiate_authentication(const AuthPolicy& auth_policy,
+	cdap_rib::auth_policy_t get_auth_policy(int session_id,
+				   	        const AuthSDUProtectionProfile& profile);
+	AuthStatus initiate_authentication(const cdap_rib::auth_policy_t& auth_policy,
 				           const AuthSDUProtectionProfile& profile,
 					   int session_id);
-	int process_incoming_message(const CDAPMessage& message, int session_id);
+	int process_incoming_message(const cdap::CDAPMessage& message, int session_id);
 	int set_policy_set_param(const std::string& name,
 	                         const std::string& value);
 
 	//Called when encryption has been enabled on a certain port, if the call
 	//to the Security Manager's "enable encryption" was asynchronous
-	AuthStatus encryption_enabled(int port_id);
+	AuthStatus crypto_state_updated(int port_id);
 
 private:
 	AuthStatus decryption_enabled_server(SSH2SecurityContext * sc);
@@ -359,7 +365,8 @@ private:
 	/// Returns 0 if successful, -1 otherwise
 	int edh_generate_shared_secret(SSH2SecurityContext * sc);
 
-	int process_edh_exchange_message(const CDAPMessage& message, int session_id);
+	int process_edh_exchange_message(const cdap::CDAPMessage& message,
+					 int session_id);
 
 	/// Generate a random challenge
 	/// Return 0 if successful, -1 otherwise
@@ -369,7 +376,8 @@ private:
 	/// Return 0 if successful, -1 otherwise
 	int encrypt_chall_with_pub_key(SSH2SecurityContext * sc, UcharArray& encrypted_chall);
 
-	int process_client_challenge_message(const CDAPMessage& message, int session_id);
+	int process_client_challenge_message(const cdap::CDAPMessage& message,
+					     int session_id);
 
 	/// Encrypt random challenge with public key.
 	/// Return 0 if successful, -1 otherwise
@@ -381,9 +389,11 @@ private:
 				     const UcharArray& challenge,
 				     UcharArray& result);
 
-	int process_client_challenge_reply_message(const CDAPMessage& message, int session_id);
+	int process_client_challenge_reply_message(const cdap::CDAPMessage& message,
+						   int session_id);
 
-	int process_server_challenge_reply_message(const CDAPMessage& message, int session_id);
+	int process_server_challenge_reply_message(const cdap::CDAPMessage& message,
+						   int session_id);
 
 	int check_challenge_reply(SSH2SecurityContext * sc,
 				  UcharArray& received_challenge);
@@ -391,7 +401,7 @@ private:
 	int generate_and_encrypt_challenge(SSH2SecurityContext * sc,
 					   UcharArray& challenge);
 
-	IRIBDaemon * rib_daemon;
+	rib::RIBDaemonProxy * rib_daemon;
 	ISecurityManager * sec_man;
 	Lockable lock;
 	BoolConditionVariable encryption_ready_condition;
@@ -414,8 +424,8 @@ public:
         void destroy_security_context(int context_id);
         void add_security_context(ISecurityContext * context);
         void eventHappened(InternalEvent * event);
-        virtual IAuthPolicySet::AuthStatus enable_encryption(const EncryptionProfile& profile,
-        						     IAuthPolicySet * caller) = 0;
+        virtual IAuthPolicySet::AuthStatus update_crypto_state(const CryptoState& profile,
+        						       IAuthPolicySet * caller) = 0;
 
 private:
         /// The authentication policy sets, by type

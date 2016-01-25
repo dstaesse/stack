@@ -26,6 +26,9 @@
 #ifdef SWIGJAVA
 #endif
 
+SWIG_JAVABODY_PROXY(public, public, SWIGTYPE)
+SWIG_JAVABODY_TYPEWRAPPER(public, public, public, SWIGTYPE)
+
 /**
  * void * typemaps. 
  * These are input typemaps for mapping a Java byte[] array to a C void array.
@@ -55,41 +58,54 @@
 %typemap(javaout) void * {
         return $jnicall;
  }
+ 
+/**
+* unsigned char* typemaps. 
+* These are input typemaps for mapping a c++ unsigned char * to a Java byte[].
+*/
+%typemap(jni) unsigned char * message_ "jbyteArray"
+%typemap(jtype) unsigned char * message_ "byte[]"
+%typemap(jstype) unsigned char * message_ "byte[]"
+%typemap(javaout) unsigned char * message_ {
+    return $jnicall;
+}
+%typemap(out) signed char * message_ {
+    $result = JCALL1(NewByteArray, jenv, arg1->contentLength);
+    JCALL4(SetByteArrayRegion, jenv, $result, 0, arg1->contentLength, $1);
+}
+%typemap(in) unsigned char *message_ {
+    $1 = (unsigned char *)JCALL2(GetByteArrayElements, jenv, $input, 0);
+}
+%typemap(javain) unsigned char *message_ "$javainput"
 
 /**
- * char * typemaps. 
- * These are input typemaps for mapping a Java byte[] array to a C char array.
- * Note that as a Java array is used and thus passeed by reference, the C
- * routine can return data to Java via the parameter.
- *
- * Example usage wrapping:
- *   void foo(char *array);
- *  
- * Java usage:
- *   byte b[] = new byte[20];
- *   modulename.foo(b);
- */
-/*
-%typemap(jni)    char * "jbyteArray"
-%typemap(jtype)  char * "byte[]"
-%typemap(jstype) char * "byte[]"
-%typemap(in)     char * {
-        $1 = (char *) JCALL2(GetByteArrayElements, jenv, $input, 0); 
-}
-
-%typemap(argout) char * {
-        JCALL3(ReleaseByteArrayElements, jenv, $input, (jbyte *) $1, 0); 
-}
-
-%typemap(javain) char * "$javainput"
-
-%typemap(javaout) char * {
-        return $jnicall;
- }
+* std::string & typemaps. 
+* These are input typemaps for mapping a c++ std::string& to a Java String[].
 */
-/* Define the class Exception */
-%typemap(javabase) Exception "java.lang.Exception";
-%typemap(javacode) Exception %{
+
+%typemap(jstype) std::string& INPUT "String[]"
+%typemap(jtype) std::string& INPUT "String[]"
+%typemap(jni) std::string& INPUT "jobjectArray"
+%typemap(javain)  std::string& INPUT "$javainput"
+%typemap(in) std::string& INPUT (std::string temp) {
+  if (!$input) {
+    SWIG_JavaThrowException(jenv, SWIG_JavaNullPointerException, "array null");
+    return $null;
+  }
+  if (JCALL1(GetArrayLength, jenv, $input) == 0) {
+    SWIG_JavaThrowException(jenv, SWIG_JavaIndexOutOfBoundsException, "Array must contain at least 1 element");
+  }
+  $1 = &temp;
+}
+%typemap(argout) std::string& INPUT {
+  jstring jvalue = JCALL1(NewStringUTF, jenv, temp$argnum.c_str()); 
+  JCALL3(SetObjectArrayElement, jenv, $input, 0, jvalue);
+}
+%apply  std::string& INPUT { std::string & des_obj }
+
+/* Define the class eu.irati.librina.Exception */
+%typemap(javabase) rina::Exception "java.lang.RuntimeException";
+%typemap(javacode) rina::Exception %{
   public String getMessage() {
     return what();
   }
@@ -161,6 +177,7 @@
     jenv->ThrowNew(excep, $1.what());
   return $null;
 }
+/*
 %typemap(throws, throws="eu.irati.librina.AllocateFlowException") rina::AllocateFlowException {
   jclass excep = jenv->FindClass("eu/irati/librina/AllocateFlowException");
   if (excep)
@@ -209,12 +226,14 @@
     jenv->ThrowNew(excep, $1.what());
   return $null;
 }
+*/
 %typemap(throws, throws="eu.irati.librina.GetDIFPropertiesException") rina::GetDIFPropertiesException {
   jclass excep = jenv->FindClass("eu/irati/librina/GetDIFPropertiesException");
   if (excep)
     jenv->ThrowNew(excep, $1.what());
   return $null;
 }
+/*
 %typemap(throws, throws="eu.irati.librina.GetDIFPropertiesResponseException") rina::GetDIFPropertiesResponseException {
   jclass excep = jenv->FindClass("eu/irati/librina/GetDIFPropertiesResponseException");
   if (excep)
@@ -245,12 +264,20 @@
     jenv->ThrowNew(excep, $1.what());
   return $null;
 }
+*/
 %typemap(throws, throws="eu.irati.librina.InitializationException") rina::InitializationException {
   jclass excep = jenv->FindClass("eu/irati/librina/InitializationException");
   if (excep)
     jenv->ThrowNew(excep, $1.what());
   return $null;
 }
+%typemap(throws, throws="eu.irati.librina.CDAPException") rina::cdap::CDAPException {
+  jclass excep = jenv->FindClass("eu/irati/librina/CDAPException");
+  if (excep)
+    jenv->ThrowNew(excep, $1.what());
+  return $null;
+}
+
 
 
 /* Typemaps to allow eventWait, eventPoll and eventTimedWait to downcast IPCEvent to the correct class */
@@ -263,6 +290,9 @@
   }
 
 %typemap(out) rina::IPCEvent *rina::IPCEventProducer::OPERATION {
+    if ($1 == NULL) {
+      return NULL;
+    }
     if ($1->eventType == rina::APPLICATION_REGISTRATION_REQUEST_EVENT) {
     	rina::ApplicationRegistrationRequestEvent *appRegReqEvent = dynamic_cast<rina::ApplicationRegistrationRequestEvent *>($1);
         jclass clazz = jenv->FindClass("eu/irati/librina/ApplicationRegistrationRequestEvent");
@@ -340,6 +370,28 @@
                 $result = jenv->NewObject(clazz, mid, cptr, false);
             }
         }
+    } else if ($1->eventType == rina::APPLICATION_UNREGISTERED_EVENT) { /* mcr */
+  	rina::ApplicationUnregisteredEvent *appUnregisteredEvent = dynamic_cast<rina::ApplicationUnregisteredEvent *>($1);
+        jclass clazz = jenv->FindClass("eu/irati/librina/ApplicationUnregisteredEvent");
+        if (clazz) {
+            jmethodID mid = jenv->GetMethodID(clazz, "<init>", "(JZ)V");
+            if (mid) {
+                jlong cptr = 0;
+                *(rina::ApplicationUnregisteredEvent **)&cptr = appUnregisteredEvent; 
+                $result = jenv->NewObject(clazz, mid, cptr, false);
+            }
+        }
+    } else if ($1->eventType == rina::APPLICATION_REGISTRATION_CANCELED_EVENT) { /* mcr */
+  	rina::AppRegistrationCanceledEvent *canceledEvent = dynamic_cast<rina::AppRegistrationCanceledEvent *>($1);
+        jclass clazz = jenv->FindClass("eu/irati/librina/AppRegistrationCanceledEvent");
+        if (clazz) {
+            jmethodID mid = jenv->GetMethodID(clazz, "<init>", "(JZ)V");
+            if (mid) {
+                jlong cptr = 0;
+                *(rina::AppRegistrationCanceledEvent **)&cptr = canceledEvent; 
+                $result = jenv->NewObject(clazz, mid, cptr, false);
+            }
+        }
     } else if ($1->eventType == rina::ALLOCATE_FLOW_RESPONSE_EVENT) {
     	rina::AllocateFlowResponseEvent *flowReqEvent = dynamic_cast<rina::AllocateFlowResponseEvent *>($1);
         jclass clazz = jenv->FindClass("eu/irati/librina/AllocateFlowResponseEvent");
@@ -384,6 +436,9 @@
                 $result = jenv->NewObject(clazz, mid, cptr, false);
             }
         }
+    } else {
+      // Generate a warning message, rather than silently fail
+      std::cerr << "Warning: Java bindings - unmapped IPCEvent of type=" << $1->eventType << std::endl;
     }
 } 
 %enddef
@@ -392,7 +447,10 @@ DOWNCAST_IPC_EVENT_CONSUMER(eventWait);
 DOWNCAST_IPC_EVENT_CONSUMER(eventPoll);
 DOWNCAST_IPC_EVENT_CONSUMER(eventTimedWait);
 
+%module(directors="1") cdapcallbackjava
+
 %{
+#include <iostream>
 #include "librina/exceptions.h"
 #include "librina/patterns.h"
 #include "librina/concurrency.h"
@@ -400,7 +458,11 @@ DOWNCAST_IPC_EVENT_CONSUMER(eventTimedWait);
 #include "librina/application.h"
 #include "librina/cdap_rib_structures.h"
 #include "librina/cdap_v2.h"
+#include "librina/ipc-api.h"
+#include "librina/configuration.h"
 %}
+
+%feature("director") rina::cdap::CDAPCallbackInterface;
 
 %rename(differs) rina::ApplicationProcessNamingInformation::operator!=(const ApplicationProcessNamingInformation &other) const;
 %rename(equals) rina::ApplicationProcessNamingInformation::operator==(const ApplicationProcessNamingInformation &other) const;
@@ -429,16 +491,37 @@ DOWNCAST_IPC_EVENT_CONSUMER(eventTimedWait);
 %rename(differs) rina::Neighbor::operator!=(const Neighbor &other) const;
 %rename(equals) rina::PsInfo::operator==(const PsInfo &other) const;
 %rename(differs) rina::PsInfo::operator!=(const PsInfo &other) const;
-
-%ignore SerializedObject;
+%rename(assign) rina::ser_obj::operator=(const ser_obj &other);
+%rename(assign) rina::cdap_rib::auth_policy::operator=(const auth_policy &other);
+%rename(assign) rina::Neighbor::operator=(const Neighbor &other);
+%rename(equals) rina::PolicyParameter::operator==(const PolicyParameter &other) const;
+%rename(differs) rina::PolicyParameter::operator!=(const PolicyParameter &other) const;
+%rename(equals) rina::PolicyConfig::operator==(const PolicyConfig &other) const;
+%rename(differs) rina::PolicyConfig::operator!=(const PolicyConfig &other) const;
+%rename(equals) rina::QoSCube::operator==(const QoSCube &other) const;
+%rename(differs) rina::QoSCube::operator!=(const QoSCube &other) const;
+%rename(assign) rina::EFCPConfiguration::operator=(const EFCPConfiguration &other);
 
 %include "librina/exceptions.h"
 %include "librina/patterns.h"
 %include "librina/concurrency.h"
 %include "librina/common.h"
+%include "librina/configuration.h"
+
+namespace rina {
+namespace cdap {
+class cdap_m_t;
+}
+}
+
+%template(TempCDAPMessageEncoder) rina::Encoder<rina::cdap::cdap_m_t>;
+%template(TempStringEncoder) rina::Encoder<std::string>;
+%template(TempIntEncoder) rina::Encoder<int>;
+
 %include "librina/application.h"
 %include "librina/cdap_rib_structures.h"
 %include "librina/cdap_v2.h"
+%include "librina/ipc-api.h"
 
 /* Macro for defining collection iterators */
 %define MAKE_COLLECTION_ITERABLE( ITERATORNAME, JTYPE, CPPCOLLECTION, CPPTYPE )
@@ -502,3 +585,5 @@ MAKE_COLLECTION_ITERABLE(UnsignedIntListIterator, Long, std::list, unsigned int)
 %template(StringList) std::list<std::string>;
 %template(FlowInformationList) std::list<rina::FlowInformation>;
 %template(UnsignedIntList) std::list<unsigned int>;
+
+/* end */

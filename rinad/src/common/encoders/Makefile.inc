@@ -562,6 +562,39 @@ EXTRA_DIST +=                                   \
 protoSOURCES += QoSSpecification.pb.cc QoSSpecification.pb.h
 
 
+RoutingForwarding.stamp: RoutingForwarding.proto
+	rm -f RoutingForwarding.tmp
+	touch RoutingForwarding.tmp
+	$(PROTOC) -I$(builddir) -I$(srcdir)	\
+		--cpp_out=$(builddir)		\
+		$(srcdir)/RoutingForwarding.proto
+	mv -f RoutingForwarding.tmp $@
+
+RoutingForwarding.pb.h RoutingForwarding.pb.cc: RoutingForwarding.stamp
+	if test -f $@; then :; else \
+	  trap 'rm -rf RoutingForwarding.lock RoutingForwarding.stamp' 1 2 13 15; \
+	  if mkdir RoutingForwarding.lock 2>/dev/null; then \
+	    rm -f RoutingForwarding.stamp; \
+	    $(MAKE) $(AM_MAKEFLAGS) RoutingForwarding.stamp; \
+	    result=$$?; rm -rf RoutingForwarding.lock; exit $$result; \
+	  else \
+	    while test -d RoutingForwarding.lock; do sleep 1; done; \
+	    test -f RoutingForwarding.stamp; \
+	  fi; \
+	fi
+
+DISTCLEANFILES +=                               \
+        RoutingForwarding.pb.h RoutingForwarding.pb.cc RoutingForwarding.stamp
+
+MOSTLYCLEANFILES +=                             \
+        RoutingForwarding.tmp
+
+EXTRA_DIST +=                                   \
+        RoutingForwarding.proto
+
+protoSOURCES += RoutingForwarding.pb.cc RoutingForwarding.pb.h
+
+
 WhatevercastNameArrayMessage.stamp: WhatevercastNameArrayMessage.proto
 	rm -f WhatevercastNameArrayMessage.tmp
 	touch WhatevercastNameArrayMessage.tmp

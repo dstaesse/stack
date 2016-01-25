@@ -143,7 +143,21 @@ long PolicyConfig::get_param_value_as_long(const std::string& name) const
 	std::string value = get_param_value_as_string(name);
 	result = strtol(value.c_str(), &dummy, 10);
 	if (!value.size() || *dummy != '\0') {
-		throw Exception("Error converting value to int");
+		throw Exception("Error converting value to long");
+	}
+
+	return result;
+}
+
+float PolicyConfig::get_param_value_as_float(const std::string& name) const
+{
+	float result;
+	char *dummy;
+
+	std::string value = get_param_value_as_string(name);
+	result = strtof(value.c_str(), &dummy);
+	if (!value.size() || *dummy != '\0') {
+		throw Exception("Error converting value to float");
 	}
 
 	return result;
@@ -745,7 +759,7 @@ void DTPConfig::set_incomplete_delivery(bool incomplete_delivery) {
 	incomplete_delivery_ = incomplete_delivery;
 }
 
-const std::string DTPConfig::toString() {
+const std::string DTPConfig::toString() const {
         std::stringstream ss;
         ss<<"DTP Policy Set (name/version): "<<dtp_policy_set_.get_name();
         ss<<"/"<<dtp_policy_set_.get_version();
@@ -942,6 +956,14 @@ DataTransferConstants::DataTransferConstants() {
 	max_pdu_size_ = 0;
 	dif_integrity_ = false;
 	max_pdu_lifetime_ = 0;
+	rate_length_ = 0;
+	frame_length_ = 0;
+	ctrl_sequence_number_length_ = 0;
+    seq_rollover_thres_ = 0;
+    dif_concatenation_ = false;
+    dif_fragmentation_ = false;
+	max_time_to_keep_ret_ = 0;
+	max_time_to_ack_ = 0;
 }
 
 unsigned short DataTransferConstants::get_address_length() const {
@@ -974,6 +996,22 @@ unsigned short DataTransferConstants::get_length_length() const {
 
 void DataTransferConstants::set_length_length(unsigned short length_length) {
 	length_length_ = length_length;
+}
+
+unsigned short DataTransferConstants::get_rate_length() const {
+	return rate_length_;
+}
+
+void DataTransferConstants::set_rate_length(unsigned short rate_length) {
+	rate_length_ = rate_length;
+}
+
+unsigned short DataTransferConstants::get_frame_length() const {
+	return frame_length_;
+}
+
+void DataTransferConstants::set_frame_length(unsigned short frame_length) {
+	frame_length_ = frame_length;
 }
 
 unsigned int DataTransferConstants::get_max_pdu_lifetime() const {
@@ -1014,6 +1052,14 @@ unsigned short DataTransferConstants::get_sequence_number_length() const {
 
 void DataTransferConstants::set_sequence_number_length(unsigned short sequence_number_length) {
 	sequence_number_length_ = sequence_number_length;
+}
+
+unsigned short DataTransferConstants::get_ctrl_sequence_number_length() const {
+	return ctrl_sequence_number_length_;
+}
+
+void DataTransferConstants::set_ctrl_sequence_number_length(unsigned short ctrl_sequence_number_length) {
+	ctrl_sequence_number_length_ = ctrl_sequence_number_length;
 }
 
 bool DataTransferConstants::isInitialized() {
@@ -1083,7 +1129,7 @@ EFCPConfiguration::~EFCPConfiguration() {
 	}
 }
 
-const std::list<QoSCube*>& EFCPConfiguration::get_qos_cubes() const {
+const std::list<QoSCube *>& EFCPConfiguration::get_qos_cubes() const{
 	return qos_cubes_;
 }
 
@@ -1294,6 +1340,15 @@ AddressPrefixConfiguration::AddressPrefixConfiguration() {
 	address_prefix_ = 0;
 }
 
+// Class AddressingConfiguration
+void AddressingConfiguration::addAddress(StaticIPCProcessAddress &addr)
+{
+	static_address_.push_back(addr);
+}
+void AddressingConfiguration::addPrefix(AddressPrefixConfiguration &pref)
+{
+	address_prefixes_.push_back(pref);
+}
 //Class AuthSDUProtectionProfile
 std::string AuthSDUProtectionProfile::to_string()
 {
@@ -1343,15 +1398,15 @@ void DIFConfiguration::set_address(unsigned int address) {
 	address_ = address;
 }
 
-const std::list<Parameter>& DIFConfiguration::get_parameters() const {
+const std::list<PolicyParameter>& DIFConfiguration::get_parameters() const {
 	return parameters_;
 }
 
-void DIFConfiguration::set_parameters(const std::list<Parameter>& parameters) {
+void DIFConfiguration::set_parameters(const std::list<PolicyParameter>& parameters) {
 	parameters_ = parameters;
 }
 
-void DIFConfiguration::add_parameter(const Parameter& parameter){
+void DIFConfiguration::add_parameter(const PolicyParameter& parameter){
 	parameters_.push_back(parameter);
 }
 
@@ -1411,4 +1466,4 @@ void DIFInformation::set_dif_configuration(
 	dif_configuration_ = dif_configuration;
 }
 
-}
+} //namespace rina

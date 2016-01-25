@@ -3,19 +3,20 @@
  *
  *    Eduard Grasa <eduard.grasa@i2cat.net>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA  02110-1301  USA
  */
 
 #ifndef IPCP_IPC_PROCESS_HH
@@ -27,17 +28,37 @@
 
 namespace rinad {
 
-class IPCProcessImpl: public IPCProcess {
+class IPCPFactory;
+class IPCProcessImpl;
+
+/// Periodically causes the IPCP Daemon to synchronize
+/// with the kernel
+class KernelSyncTrigger : public rina::SimpleThread {
 public:
-        IPCProcessImpl(const rina::ApplicationProcessNamingInformation& name,
-                        unsigned short id, unsigned int ipc_manager_port,
-                        std::string log_level, std::string log_file);
+	KernelSyncTrigger(rina::ThreadAttributes * threadAttributes,
+			  IPCProcessImpl * ipcp,
+			  unsigned int sync_period);
+	~KernelSyncTrigger() throw() {};
+
+	int run();
+	void finish();
+
+private:
+	bool end;
+	IPCProcessImpl * ipcp;
+	unsigned int period_in_ms;
+	rina::Sleep sleep;
+};
+
+class IPCProcessImpl: public IPCProcess {
+	friend class IPCPFactory;
+public:
         ~IPCProcessImpl();
         unsigned short get_id();
-        const std::list<rina::Neighbor*> get_neighbors() const;
+        const std::list<rina::Neighbor> get_neighbors() const;
         const IPCProcessOperationalState& get_operational_state() const;
         void set_operational_state(const IPCProcessOperationalState& operational_state);
-        const rina::DIFInformation& get_dif_information() const;
+        rina::DIFInformation& get_dif_information();
         void set_dif_information(const rina::DIFInformation& dif_information);
         unsigned int get_address() const;
         void set_address(unsigned int address);
@@ -64,13 +85,18 @@ public:
         void processFwdCDAPMsgEvent(
                 const rina::FwdCDAPMsgEvent& event);
 
-
 	//Event loop (run)
 	void event_loop(void);
 
+        // Cause relevant IPCP components to sync with information
+        // exported by the kernel via sysfs
+        void sync_with_kernel();
+	bool keep_running;
+
 private:
-        void init_cdap_session_manager();
-		void init_encoder();
+        IPCProcessImpl(const rina::ApplicationProcessNamingInformation& name,
+                        unsigned short id, unsigned int ipc_manager_port,
+                        std::string log_level, std::string log_file);
 
         IPCProcessOperationalState state;
 		std::map<unsigned int, rina::AssignToDIFRequestEvent> pending_events_;
@@ -79,8 +105,25 @@ private:
         std::map<unsigned int, rina::SelectPolicySetRequestEvent>
                 pending_select_policy_set_events;
         rina::Lockable * lock_;
-		rina::DIFInformation dif_information_;
+	rina::DIFInformation dif_information_;
+	KernelSyncTrigger * kernel_sync;
 };
+
+class IPCPFactory{
+
+public:
+	/**
+	* Create IPCP
+	*/
+	static IPCProcessImpl* createIPCP(const rina::ApplicationProcessNamingInformation& name,
+					  unsigned short id,
+					  unsigned int ipc_manager_port,
+					  std::string log_level,
+					  std::string log_file);
+
+	static IPCProcessImpl* getIPCP();
+};
+
 
 } //namespace rinad
 

@@ -30,8 +30,9 @@
 #include "logs.h"
 #include "rds/rmem.h"
 #include "rds/rtimer.h"
-#include "pff-ps.h"
+#include "pff-ps-default.h"
 #include "debug.h"
+#include "rds/robjects.h"
 
 /* FIXME: This representation is crappy and MUST be changed */
 struct pft_port_entry {
@@ -96,7 +97,40 @@ struct pft_entry {
         qos_id_t         qos_id;
         struct list_head ports;
         struct list_head next;
+	struct robject   robj;
 };
+
+static ssize_t pft_entry_attr_show(struct robject *        robj,
+                        	   struct robj_attribute * attr,
+                                   char *                  buf)
+{
+	struct pft_entry * entry;
+
+	entry = container_of(robj, struct pft_entry, robj);
+	if (!entry)
+		return 0;
+
+	if (strcmp(robject_attr_name(attr), "dest_addr") == 0) {
+		return sprintf(buf, "%u\n", entry->destination);
+	}
+	if (strcmp(robject_attr_name(attr), "qos_id") == 0) {
+		return sprintf(buf, "%u\n", entry->qos_id);
+	}
+	if (strcmp(robject_attr_name(attr), "ports") == 0) {
+		int offset = 0;
+		struct pft_port_entry * pos;
+        	list_for_each_entry(pos, &entry->ports, next) {
+			offset += sprintf(buf + offset, "%u ", pos->port_id);
+        	}
+		if (offset > 1)
+			sprintf(buf + offset -1, "\n");
+		return offset;
+	}
+	return 0;
+}
+RINA_SYSFS_OPS(pft_entry);
+RINA_ATTRS(pft_entry, dest_addr, qos_id, ports);
+RINA_KTYPE(pft_entry);
 
 static struct pft_entry * pfte_create_gfp(gfp_t     flags,
                                           address_t destination,
@@ -104,7 +138,7 @@ static struct pft_entry * pfte_create_gfp(gfp_t     flags,
 {
         struct pft_entry * tmp;
 
-        tmp = rkmalloc(sizeof(*tmp), flags);
+        tmp = rkzalloc(sizeof(*tmp), flags);
         if (!tmp)
                 return NULL;
 
@@ -112,6 +146,8 @@ static struct pft_entry * pfte_create_gfp(gfp_t     flags,
         tmp->qos_id      = qos_id;
         INIT_LIST_HEAD(&tmp->ports);
         INIT_LIST_HEAD(&tmp->next);
+
+	robject_init(&tmp->robj, &pft_entry_rtype);
 
         return tmp;
 }
@@ -144,6 +180,7 @@ static void pfte_destroy(struct pft_entry * entry)
         }
 
         list_del(&entry->next);
+	robject_del(&entry->robj);
         rkfree(entry);
 }
 
@@ -258,7 +295,7 @@ static struct pft_entry * pft_find(struct pff_ps_priv * priv,
 
         list_for_each_entry(pos, &priv->entries, next) {
                 if ((pos->destination == destination) &&
-                    (pos->qos_id      == qos_id)) {
+                    ((pos->qos_id == 0) || (pos->qos_id == qos_id))) {
                         return pos;
                 }
         }
@@ -266,8 +303,8 @@ static struct pft_entry * pft_find(struct pff_ps_priv * priv,
         return NULL;
 }
 
-static int default_add(struct pff_ps *        ps,
-                       struct mod_pff_entry * entry)
+int default_add(struct pff_ps *        ps,
+                struct mod_pff_entry * entry)
 {
         struct pff_ps_priv *     priv;
         struct pft_entry *       tmp;
@@ -300,7 +337,7 @@ static int default_add(struct pff_ps *        ps,
                         spin_unlock(&priv->lock);
                         return -1;
                 }
-
+		robject_rset_add(&tmp->robj, pff_rset(ps->dm), "%u", tmp->destination);
                 list_add(&tmp->next, &priv->entries);
         }
 
@@ -323,8 +360,8 @@ static int default_add(struct pff_ps *        ps,
         return 0;
 }
 
-static int default_remove(struct pff_ps *        ps,
-                          struct mod_pff_entry * entry)
+int default_remove(struct pff_ps *        ps,
+                   struct mod_pff_entry * entry)
 {
         struct pff_ps_priv *       priv;
         struct port_id_altlist *   alts;
@@ -376,7 +413,7 @@ static int default_remove(struct pff_ps *        ps,
         return 0;
 }
 
-static bool default_is_empty(struct pff_ps * ps)
+bool default_is_empty(struct pff_ps * ps)
 {
         struct pff_ps_priv * priv;
         bool                 empty;
@@ -403,7 +440,7 @@ static void __pft_flush(struct pff_ps_priv * priv)
         }
 }
 
-static int default_flush(struct pff_ps * ps)
+int default_flush(struct pff_ps * ps)
 {
         struct pff_ps_priv * priv;
 
@@ -420,10 +457,10 @@ static int default_flush(struct pff_ps * ps)
         return 0;
 }
 
-static int default_nhop(struct pff_ps * ps,
-                        struct pci *    pci,
-                        port_id_t **    ports,
-                        size_t *        count)
+int default_nhop(struct pff_ps * ps,
+                 struct pci *    pci,
+                 port_id_t **    ports,
+                 size_t *        count)
 {
         struct pff_ps_priv * priv;
         address_t            destination;
@@ -507,8 +544,8 @@ static int pfte_port_id_altlists_copy(struct pft_entry * entry,
         return 0;
 }
 
-static int default_dump(struct pff_ps *    ps,
-                        struct list_head * entries)
+int default_dump(struct pff_ps *    ps,
+                 struct list_head * entries)
 {
         struct pff_ps_priv *   priv;
         struct pft_entry *     pos;
@@ -542,31 +579,7 @@ static int default_dump(struct pff_ps *    ps,
         return 0;
 }
 
-/* NOTE: This is skeleton code that was directly copy pasted */
-static int pff_ps_set_policy_set_param(struct ps_base * bps,
-                                       const char *     name,
-                                       const char *     value)
-{
-        struct pff_ps * ps = container_of(bps, struct pff_ps, base);
-
-        (void) ps;
-
-        if (!name) {
-                LOG_ERR("Null parameter name");
-                return -1;
-        }
-
-        if (!value) {
-                LOG_ERR("Null parameter value");
-                return -1;
-        }
-
-        LOG_ERR("No such parameter to set");
-
-        return -1;
-}
-
-static struct ps_base *
+struct ps_base *
 pff_ps_default_create(struct rina_component * component)
 {
         struct pff_ps * ps;
@@ -587,7 +600,7 @@ pff_ps_default_create(struct rina_component * component)
                 return NULL;
         }
 
-        ps->base.set_policy_set_param = pff_ps_set_policy_set_param;
+        ps->base.set_policy_set_param = NULL; /* default */
         ps->dm = pff;
         ps->priv = (void *) priv;
 
@@ -601,8 +614,9 @@ pff_ps_default_create(struct rina_component * component)
 
         return &ps->base;
 }
+EXPORT_SYMBOL(pff_ps_default_create);
 
-static void pff_ps_default_destroy(struct ps_base * bps)
+void pff_ps_default_destroy(struct ps_base * bps)
 {
         struct pff_ps * ps = container_of(bps, struct pff_ps, base);
 
@@ -624,9 +638,4 @@ static void pff_ps_default_destroy(struct ps_base * bps)
                 rkfree(ps);
         }
 }
-
-struct ps_factory pff_factory = {
-        .owner   = THIS_MODULE,
-        .create  = pff_ps_default_create,
-        .destroy = pff_ps_default_destroy,
-};
+EXPORT_SYMBOL(pff_ps_default_destroy);

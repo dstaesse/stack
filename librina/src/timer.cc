@@ -126,22 +126,26 @@ void TaskScheduler::runTasks() {
 
 void TaskScheduler::cancelTask(TimerTask *task) {
 	lock();
-	for (std::map<Time, std::list<TimerTask*>* >::iterator iter_map =
-			tasks_.begin(); iter_map != tasks_.end(); ++iter_map) {
-		for (std::list<TimerTask*>::iterator iter_list = iter_map->second->begin();
-				iter_list != iter_map->second->end(); ++iter_list){
+	std::map<Time, std::list<TimerTask*>* >::iterator iter_map =
+	            tasks_.begin();
+	while(iter_map != tasks_.end()) {
+	    std::list<TimerTask*>::iterator iter_list = iter_map->second->begin();
+		while(iter_list != iter_map->second->end()){
 			if (*iter_list == task){
 				delete *iter_list;
-				*iter_list = 0;
-				std::list<TimerTask*>::iterator removeIter = iter_list;
-				--iter_list;
-				iter_map->second->erase(removeIter);
+				iter_map->second->erase(iter_list++);
+			}
+			else
+			{
+			    ++iter_list;
 			}
 		}
 		if (iter_map->second->size() == 0){
 			delete iter_map->second;
-			tasks_.erase(iter_map);
+			tasks_.erase(iter_map++);
 		}
+		else
+		    ++iter_map;
 	}
 unlock();
 }
@@ -150,9 +154,8 @@ unlock();
 void* doWorkTimer(void *arg) {
 	Timer *timer = (Timer*) arg;
 	Sleep sleep;
-	while (timer->is_continue()) {
-		sleep.sleepForMili(500);
-		timer->get_task_scheduler()->runTasks();
+	while (timer->execute_tasks()) {
+                sleep.sleepForMili(500);
 	}
 	return (void *) 0;
 }
@@ -208,10 +211,13 @@ void Timer::cancel() {
 TaskScheduler* Timer::get_task_scheduler() const {
 	return task_scheduler;
 }
-bool Timer::is_continue() {
-	bool result;
+bool Timer::execute_tasks() {
 	continue_lock_.lock();
-	result = continue_;
+        bool result = continue_;
+	if (result)
+	{
+	        get_task_scheduler()->runTasks();
+	}
 	continue_lock_.unlock();
 	return result;
 }
